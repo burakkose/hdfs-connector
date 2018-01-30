@@ -10,8 +10,10 @@ libraryDependencies ++= {
   val akkaVersion = "2.5.9"
   val scalaTestVersion = "3.0.4"
   val junitInterfaceVersion = "0.11"
+  val hadoopVersion = "3.0.0"
   Seq(
     "com.typesafe.akka" %% "akka-stream" % akkaVersion,
+    "org.apache.hadoop" % "hadoop-client" % hadoopVersion,
     //Test
     "org.scalatest" %% "scalatest" % scalaTestVersion % Test,
     "com.typesafe.akka" %% "akka-testkit" % akkaVersion % Test,
