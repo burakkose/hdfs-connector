@@ -1,11 +1,11 @@
 package akka.stream.alpakka.hdfs.scaladsl
 
-trait SyncPolicy {
+trait SyncStrategy {
   def canSync(bytes: Array[Byte], offset: Long): Boolean
   def reset(): Unit
 }
 
-case class CountSyncPolicy(count: Int) extends SyncPolicy {
+case class CountSyncStrategy(count: Int) extends SyncStrategy {
   private var executeCount = 0
 
   override def canSync(bytes: Array[Byte], offset: Long): Boolean = {

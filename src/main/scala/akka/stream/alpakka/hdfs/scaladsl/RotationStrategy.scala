@@ -2,8 +2,8 @@ package akka.stream.alpakka.hdfs.scaladsl
 
 import scala.concurrent.duration.FiniteDuration
 
-sealed trait RotationPolicy {
-  def shouldRotate(offset: Long): Boolean
+sealed trait RotationStrategy {
+  def canRotate(offset: Long): Boolean
   def reset(): Unit
 }
 
@@ -15,12 +15,12 @@ object FileUnit {
   case object TB extends FileUnit(Math.pow(2, 40).toLong)
 }
 
-case class SizeRotationPolicy(count: Double, unit: FileUnit) extends RotationPolicy {
+case class SizeRotationStrategy(count: Double, unit: FileUnit) extends RotationStrategy {
   private var lastOffset = 0L
   private var currentBytesWritten = 0L
   private val maxBytes = count * unit.byteCount
 
-  def shouldRotate(offset: Long): Boolean = {
+  def canRotate(offset: Long): Boolean = {
     val diff = offset - lastOffset
     currentBytesWritten += diff
     lastOffset = offset
@@ -33,12 +33,12 @@ case class SizeRotationPolicy(count: Double, unit: FileUnit) extends RotationPol
   }
 }
 
-case class TimedRotationPolicy(interval: FiniteDuration) extends RotationPolicy {
-  def shouldRotate(offset: Long): Boolean = false
+case class TimedRotationStrategy(interval: FiniteDuration) extends RotationStrategy {
+  def canRotate(offset: Long): Boolean = false
   def reset(): Unit = ()
 }
 
-case class NoRotationPolicy() extends RotationPolicy {
-  def shouldRotate(offset: Long): Boolean = false
+case class NoRotationStrategy() extends RotationStrategy {
+  def canRotate(offset: Long): Boolean = false
   def reset(): Unit = ()
 }
