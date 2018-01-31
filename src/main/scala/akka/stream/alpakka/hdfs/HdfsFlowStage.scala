@@ -2,7 +2,8 @@ package akka.stream.alpakka.hdfs
 
 import akka.NotUsed
 import akka.event.Logging
-import akka.stream.alpakka.hdfs.scaladsl.{HdfsSinkSettings, RotationStrategy, SyncStrategy, TimedRotationStrategy}
+import akka.stream.alpakka.hdfs.scaladsl.RotationStrategy.TimedRotationStrategy
+import akka.stream.alpakka.hdfs.scaladsl.{HdfsSinkSettings, RotationStrategy, SyncStrategy}
 import akka.stream.stage._
 import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
 import akka.util.ByteString
@@ -56,18 +57,17 @@ private[hdfs] final class HdfsFlowLogic(
     output.write(bytes)
     offset += bytes.length
 
-    if (syncStrategy.canSync(bytes, offset)) {
+    syncStrategy.trySync(bytes, offset) { () =>
       output.hsync()
       syncStrategy.reset()
     }
 
-    if (rotationStrategy.canRotate(offset)) {
+    rotationStrategy.tryRotate(offset) { () =>
       rotateOutputFile()
       rotationStrategy.reset()
     }
 
     tryPull()
-
   }
 
   def onPull(): Unit =
