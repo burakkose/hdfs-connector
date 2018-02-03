@@ -1,7 +1,7 @@
 package akka.stream.alpakka.hdfs.scaladsl
 
 import akka.NotUsed
-import akka.stream.alpakka.hdfs.{HdfsFlowStage, WriteLog}
+import akka.stream.alpakka.hdfs.{HdfsFlowStage, HdfsSinkSettings, WriteLog}
 import akka.stream.scaladsl.Flow
 import akka.util.ByteString
 import org.apache.hadoop.fs.{FileSystem, Path}

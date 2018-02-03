@@ -3,7 +3,7 @@ package akka.stream.alpakka.hdfs.javadsl
 import java.util.function.BiFunction
 
 import akka.NotUsed
-import akka.stream.alpakka.hdfs.WriteLog
+import akka.stream.alpakka.hdfs.{HdfsSinkSettings, WriteLog}
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy, HdfsFlow => ScalaHdfsFlow}
 import akka.stream.javadsl
 import akka.util.ByteString
@@ -26,7 +26,7 @@ object HdfsFlow {
         syncStrategy,
         rotationStrategy,
         (rc, t) => outputFileGenerator.apply(rc, t),
-        settings.asScala
+        settings
       )
       .asJava
 

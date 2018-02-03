@@ -1,6 +1,7 @@
 package akka.stream.alpakka.hdfs.scaladsl
 
 import akka.Done
+import akka.stream.alpakka.hdfs.HdfsSinkSettings
 import akka.stream.scaladsl.{Keep, Sink}
 import akka.util.ByteString
 import org.apache.hadoop.fs.{FileSystem, Path}

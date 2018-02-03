@@ -4,7 +4,7 @@ import akka.NotUsed
 import akka.event.Logging
 import akka.stream.alpakka.hdfs.HdfsFlowLogic.{FlowState, Runner1}
 import akka.stream.alpakka.hdfs.scaladsl.RotationStrategy.TimedRotationStrategy
-import akka.stream.alpakka.hdfs.scaladsl.{HdfsSinkSettings, RotationStrategy, SyncStrategy}
+import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy}
 import akka.stream.stage._
 import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
 import akka.util.ByteString
@@ -15,7 +15,7 @@ import scala.concurrent.Future
 
 final case class WriteLog(path: String, offset: Long, rotation: Int)
 
-final class HdfsFlowStage(
+private[hdfs] final class HdfsFlowStage(
     fs: FileSystem,
     dest: String,
     syncStrategy: SyncStrategy,

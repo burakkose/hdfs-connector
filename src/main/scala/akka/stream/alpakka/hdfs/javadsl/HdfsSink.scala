@@ -3,6 +3,7 @@ package akka.stream.alpakka.hdfs.javadsl
 import java.util.concurrent.CompletionStage
 import java.util.function.BiFunction
 
+import akka.stream.alpakka.hdfs.HdfsSinkSettings
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy}
 import akka.stream.javadsl
 import akka.util.ByteString
