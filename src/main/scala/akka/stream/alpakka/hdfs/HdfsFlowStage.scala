@@ -2,11 +2,13 @@ package akka.stream.alpakka.hdfs
 
 import akka.NotUsed
 import akka.event.Logging
+import akka.stream.alpakka.hdfs.HdfsFlowLogic.{FlowState, Runner1}
 import akka.stream.alpakka.hdfs.scaladsl.RotationStrategy.TimedRotationStrategy
 import akka.stream.alpakka.hdfs.scaladsl.{HdfsSinkSettings, RotationStrategy, SyncStrategy}
 import akka.stream.stage._
 import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
 import akka.util.ByteString
+import cats.data.State
 import org.apache.hadoop.fs.{FSDataOutputStream, FileSystem, Path => HadoopPath}
 
 final case class WriteLog(path: String, offset: Long, rotation: Int)
@@ -34,8 +36,8 @@ final class HdfsFlowStage(
 private[hdfs] final class HdfsFlowLogic(
     fs: FileSystem,
     dest: String,
-    syncStrategy: SyncStrategy,
-    rotationStrategy: RotationStrategy,
+    initialSyncStrategy: SyncStrategy,
+    initialRotationStrategy: RotationStrategy,
     settings: HdfsSinkSettings,
     outputFileGenerator: (Int, Long) => HadoopPath,
     inlet: Inlet[ByteString],
@@ -45,48 +47,30 @@ private[hdfs] final class HdfsFlowLogic(
     with InHandler
     with OutHandler {
 
-  private var offset: Long = 0L
-  private var rotationCount: Int = 0
-  private var output: FSDataOutputStream = _
-  private var currentFile: HadoopPath = _
+  private var logicState = FlowState(fs, createOutputFile(0), initialRotationStrategy, initialSyncStrategy)
 
   setHandlers(inlet, outlet, this)
 
-  def onPush(): Unit = {
-    val bytes = grab(inlet).toArray
-    output.write(bytes)
-    offset += bytes.length
-
-    syncStrategy.trySync(bytes, offset) { () =>
-      output.hsync()
-      syncStrategy.reset()
-    }
-
-    rotationStrategy.tryRotate(offset) { () =>
-      rotateOutputFile()
-      rotationStrategy.reset()
-    }
-
-    tryPull()
-  }
+  def onPush(): Unit =
+    logicState = onPushProgram(grab(inlet).toArray)
+      .runS(logicState)
+      .value
 
   def onPull(): Unit =
     tryPull()
 
   override def preStart(): Unit = {
-    currentFile = outputFileGenerator(rotationCount, System.currentTimeMillis / 1000)
-    output = fs.create(currentFile)
     // Schedule timer to rotate output file
-    rotationStrategy match {
-      case timedPolicy: TimedRotationStrategy =>
-        schedulePeriodicallyWithInitialDelay(NotUsed, settings.initialDelay, timedPolicy.interval)
+    initialRotationStrategy match {
+      case timed: TimedRotationStrategy =>
+        schedulePeriodicallyWithInitialDelay(NotUsed, settings.initialDelay, timed.interval)
       case _ => ()
     }
-    pull(inlet)
+    tryPull()
   }
 
   override def onTimer(timerKey: Any): Unit =
-    rotateOutputFile()
+    logicState = rotateOutput(logicState)
 
   override def onUpstreamFailure(ex: Throwable): Unit =
     failStage(ex)
@@ -99,20 +83,95 @@ private[hdfs] final class HdfsFlowLogic(
       pull(inlet)
     }
 
-  private def rotateOutputFile(): Unit = {
-    output.close() // close output file
-    rotationCount = rotationCount + 1
+  private def createOutputFile(c: Int): HadoopPath =
+    outputFileGenerator(c, System.currentTimeMillis / 1000)
 
-    val newFile = outputFileGenerator(rotationCount, System.currentTimeMillis / 1000)
-    output = fs.create(newFile)
-    val destPath = new HadoopPath(dest, currentFile.getName)
-    fs.rename(currentFile, destPath)
+  private def rotateOutput(s: FlowState): FlowState = {
+    s.output.close()
 
-    val message = WriteLog(destPath.getName, offset, rotationCount)
+    val newRotationCount = s.rotationCount + 1
+    val newFile = createOutputFile(newRotationCount)
+    val newOutput = fs.create(newFile)
+    val destPath = new HadoopPath(dest, s.file.getName)
 
+    fs.rename(s.file, destPath)
+    val message = WriteLog(destPath.getName, s.offset, newRotationCount)
     push(outlet, message)
 
-    currentFile = newFile
-    offset = 0
+    s.copy(offset = 0,
+           file = newFile,
+           rotationCount = newRotationCount,
+           output = newOutput,
+           rotationStrategy = s.rotationStrategy.reset())
   }
+
+  private def onPushProgram(bytes: Array[Byte]) =
+    for {
+      offset <- writeBytes(bytes)
+      _ <- calculateSync(bytes, offset)
+      _ <- calculateRotation(offset)
+      _ <- trySyncOutput
+      _ <- tryRotateOutput
+    } yield tryPull()
+
+  private def writeBytes(bytes: Array[Byte]): Runner1[Long] =
+    State[FlowState, Long] { state =>
+      val newOffset = state.offset + bytes.length
+      state.output.write(bytes)
+      (state.copy(offset = newOffset), newOffset)
+    }
+
+  private def calculateRotation(offset: Long): Runner1[RotationStrategy] =
+    State[FlowState, RotationStrategy] { state =>
+      val newRotation = state.rotationStrategy.calculate(offset)
+      (state.copy(rotationStrategy = newRotation), newRotation)
+    }
+
+  private def calculateSync(bytes: Array[Byte], offset: Long): Runner1[SyncStrategy] =
+    State[FlowState, SyncStrategy] { state =>
+      val newSync = state.syncStrategy.calculate(bytes, offset)
+      (state.copy(syncStrategy = newSync), newSync)
+    }
+
+  private def tryRotateOutput: Runner1[Boolean] =
+    State[FlowState, Boolean] { state =>
+      if (state.rotationStrategy.canRotate) {
+        (rotateOutput(state), true)
+      } else {
+        (state, false)
+      }
+    }
+
+  private def trySyncOutput: Runner1[Boolean] =
+    State[FlowState, Boolean] { state =>
+      val done = if (state.syncStrategy.canSync) {
+        state.output.hsync()
+        state.syncStrategy.reset()
+        true
+      } else {
+        false
+      }
+      (state, done)
+    }
+}
+
+private object HdfsFlowLogic {
+
+  type Runner0 = Runner1[Unit]
+  type Runner1[A] = State[FlowState, A]
+
+  case class FlowState(
+      offset: Long,
+      rotationCount: Int,
+      output: FSDataOutputStream,
+      file: HadoopPath,
+      rotationStrategy: RotationStrategy,
+      syncStrategy: SyncStrategy
+  )
+
+  object FlowState {
+    def apply(fs: FileSystem, file: HadoopPath, rs: RotationStrategy, ss: SyncStrategy): FlowState =
+      new FlowState(0, 0, fs.create(file), file, rs, ss)
+  }
+
 }
