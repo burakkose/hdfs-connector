@@ -13,5 +13,4 @@ case class HdfsSinkSettings(
     delay: FiniteDuration = 0.millis,
     pattern: Regex = "*".r,
     chunkSize: Int = 4096,
-    owner: String
 )

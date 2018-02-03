@@ -11,6 +11,8 @@ import akka.util.ByteString
 import cats.data.State
 import org.apache.hadoop.fs.{FSDataOutputStream, FileSystem, Path => HadoopPath}
 
+import scala.concurrent.Future
+
 final case class WriteLog(path: String, offset: Long, rotation: Int)
 
 final class HdfsFlowStage(
@@ -20,11 +22,11 @@ final class HdfsFlowStage(
     rotationStrategy: RotationStrategy,
     settings: HdfsSinkSettings,
     outputFileGenerator: (Int, Long) => HadoopPath
-) extends GraphStage[FlowShape[ByteString, WriteLog]] {
+) extends GraphStage[FlowShape[ByteString, Future[WriteLog]]] {
 
   private val in = Inlet[ByteString](Logging.simpleName(this) + ".in")
-  private val out = Outlet[WriteLog](Logging.simpleName(this) + ".out")
-  override val shape: FlowShape[ByteString, WriteLog] = FlowShape(in, out)
+  private val out = Outlet[Future[WriteLog]](Logging.simpleName(this) + ".out")
+  override val shape: FlowShape[ByteString, Future[WriteLog]] = FlowShape(in, out)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
     new HdfsFlowLogic(fs, dest, syncStrategy, rotationStrategy, settings, outputFileGenerator, in, out, shape)
@@ -41,8 +43,8 @@ private[hdfs] final class HdfsFlowLogic(
     settings: HdfsSinkSettings,
     outputFileGenerator: (Int, Long) => HadoopPath,
     inlet: Inlet[ByteString],
-    outlet: Outlet[WriteLog],
-    shape: FlowShape[ByteString, WriteLog]
+    outlet: Outlet[Future[WriteLog]],
+    shape: FlowShape[ByteString, Future[WriteLog]]
 ) extends TimerGraphStageLogic(shape)
     with InHandler
     with OutHandler {
@@ -96,7 +98,7 @@ private[hdfs] final class HdfsFlowLogic(
 
     fs.rename(s.file, destPath)
     val message = WriteLog(destPath.getName, s.offset, newRotationCount)
-    push(outlet, message)
+    push(outlet, Future.successful(message))
 
     s.copy(offset = 0,
            file = newFile,
