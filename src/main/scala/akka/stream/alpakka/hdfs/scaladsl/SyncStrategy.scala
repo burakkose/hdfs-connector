@@ -1,21 +1,23 @@
 package akka.stream.alpakka.hdfs.scaladsl
 
-trait SyncStrategy {
-  def trySync(bytes: Array[Byte], offset: Long)(fn: () => Unit): Unit
-  def reset(): Unit
+sealed trait SyncStrategy {
+  def calculate(bytes: Array[Byte], offset: Long): SyncStrategy
+  def canSync: Boolean
+  def reset(): SyncStrategy
 }
 
 object SyncStrategy {
-  final case class CountSyncStrategy(count: Int) extends SyncStrategy {
-    private var executeCount = 0
 
-    override def trySync(bytes: Array[Byte], offset: Long)(fn: () => Unit): Unit = {
-      executeCount += 1
-      if (executeCount >= count)
-        fn()
-    }
+  def count(c: Int): SyncStrategy =
+    CountSyncStrategy(0, c)
 
-    override def reset(): Unit =
-      executeCount = 0
+  private[hdfs] final case class CountSyncStrategy(
+      executeCount: Int = 0,
+      count: Int
+  ) extends SyncStrategy {
+    def canSync: Boolean = executeCount >= count
+    def reset(): SyncStrategy = copy(executeCount = 0)
+    def calculate(bytes: Array[Byte], offset: Long): SyncStrategy = copy(executeCount = executeCount + 1)
   }
+
 }

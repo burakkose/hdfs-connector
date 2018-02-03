@@ -12,52 +12,57 @@ object FileUnit {
 }
 
 sealed trait RotationStrategy {
-  def tryRotate(offset: Long)(fn: () => Unit): Unit
-  def reset(): Unit
+  def calculate(offset: Long): RotationStrategy
+  def canRotate: Boolean
+  def reset(): RotationStrategy
 }
 
 object RotationStrategy {
 
-  final case class SizeRotationStrategy(count: Double, unit: FileUnit) extends RotationStrategy {
-    private var lastOffset = 0L
-    private var currentBytesWritten = 0L
-    private val maxBytes = count * unit.byteCount
+  def sized(count: Double, unit: FileUnit): RotationStrategy =
+    SizeRotationStrategy(0, 0, count * unit.byteCount)
 
-    def tryRotate(offset: Long)(fn: () => Unit): Unit = {
+  def buffered(size: Int): RotationStrategy =
+    BufferRotationStrategy(0, size)
+
+  def timed(interval: FiniteDuration): RotationStrategy =
+    TimedRotationStrategy(interval)
+
+  def no: RotationStrategy =
+    NoRotationStrategy()
+
+  private[hdfs] final case class SizeRotationStrategy(
+      bytesWritten: Long,
+      lastOffset: Long,
+      maxBytes: Double
+  ) extends RotationStrategy {
+    def canRotate: Boolean = bytesWritten >= maxBytes
+    def reset(): RotationStrategy = copy(bytesWritten = 0, lastOffset = 0)
+    def calculate(offset: Long): RotationStrategy = {
       val diff = offset - lastOffset
-      currentBytesWritten += diff
-      lastOffset = offset
-      if (currentBytesWritten >= maxBytes)
-        fn()
-    }
-
-    def reset(): Unit = {
-      lastOffset = 0
-      currentBytesWritten = 0
+      copy(bytesWritten = bytesWritten + diff, lastOffset = offset)
     }
   }
 
-  final case class BufferRotationStrategy(size: Int) extends RotationStrategy {
-    private var currentMessageWritten = 0
-
-    def tryRotate(offset: Long)(fn: () => Unit): Unit = {
-      currentMessageWritten += 1
-      if (currentMessageWritten > size)
-        fn()
-    }
-
-    def reset(): Unit =
-      currentMessageWritten = 0
+  private[hdfs] final case class BufferRotationStrategy(
+      messageWritten: Int,
+      size: Int
+  ) extends RotationStrategy {
+    def canRotate: Boolean = messageWritten >= size
+    def reset(): RotationStrategy = copy(messageWritten = 0)
+    def calculate(offset: Long): RotationStrategy = copy(messageWritten = messageWritten + 1)
   }
 
-  final case class TimedRotationStrategy(interval: FiniteDuration) extends RotationStrategy {
-    def tryRotate(offset: Long)(fn: () => Unit): Unit = ()
-    def reset(): Unit = ()
+  private[hdfs] final case class TimedRotationStrategy(interval: FiniteDuration) extends RotationStrategy {
+    def canRotate: Boolean = false
+    def reset(): RotationStrategy = this
+    def calculate(offset: Long): RotationStrategy = this
   }
 
-  final case class NoRotationStrategy() extends RotationStrategy {
-    def tryRotate(offset: Long)(fn: () => Unit): Unit = ()
-    def reset(): Unit = ()
+  private[hdfs] final case class NoRotationStrategy() extends RotationStrategy {
+    def canRotate: Boolean = false
+    def reset(): RotationStrategy = this
+    def calculate(offset: Long): RotationStrategy = this
   }
 
 }
