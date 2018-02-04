@@ -1,42 +1,55 @@
 package akka.stream.alpakka.hdfs.scaladsl
 
 import akka.Done
-import akka.stream.alpakka.hdfs.HdfsSinkSettings
+import akka.stream.alpakka.hdfs.HDFSSinkSettings
 import akka.stream.scaladsl.{Keep, Sink}
 import akka.util.ByteString
 import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.hadoop.io.SequenceFile.CompressionType
+import org.apache.hadoop.io.Writable
+import org.apache.hadoop.io.compress.CompressionCodec
 
 import scala.concurrent.Future
 
 class HdfsSink {
 
-  def create(
+  def data(
       fs: FileSystem,
       dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
       outputFileGenerator: (Int, Long) => Path,
-      settings: HdfsSinkSettings
+      settings: HDFSSinkSettings
   ): Sink[ByteString, Future[Done]] =
     HdfsFlow
-      .create(fs, dest, syncStrategy, rotationStrategy, outputFileGenerator, settings)
+      .data(fs, dest, syncStrategy, rotationStrategy, outputFileGenerator, settings)
       .toMat(Sink.ignore)(Keep.right)
 
-  def create(
+  def sequence[K <: Writable, V <: Writable](
       fs: FileSystem,
       dest: String,
+      syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
       outputFileGenerator: (Int, Long) => Path,
-      settings: HdfsSinkSettings
-  ): Sink[ByteString, Future[Done]] =
-    create(fs, dest, SyncStrategy.no, rotationStrategy, outputFileGenerator, settings)
-
-  def create(
-      fs: FileSystem,
-      dest: String,
-      outputFileGenerator: (Int, Long) => Path,
-      settings: HdfsSinkSettings
-  ): Sink[ByteString, Future[Done]] =
-    create(fs, dest, RotationStrategy.no, outputFileGenerator, settings)
+      compressionType: CompressionType,
+      compressionCodec: CompressionCodec,
+      settings: HDFSSinkSettings,
+      classK: Class[K],
+      classV: Class[V]
+  ): Sink[(K, V), Future[Done]] =
+    HdfsFlow
+      .sequence[K, V](
+        fs,
+        dest,
+        syncStrategy,
+        rotationStrategy,
+        outputFileGenerator,
+        compressionType,
+        compressionCodec,
+        settings,
+        classK,
+        classV
+      )
+      .toMat(Sink.ignore)(Keep.right)
 
 }

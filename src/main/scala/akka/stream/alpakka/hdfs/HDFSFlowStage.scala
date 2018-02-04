@@ -4,15 +4,16 @@ import java.io.Closeable
 
 import akka.NotUsed
 import akka.event.Logging
-import akka.stream.alpakka.hdfs.HdfsFlowLogic.{FlowState, Runner1}
+import akka.stream.alpakka.hdfs.HDFSFlowLogic.{FlowState, Runner1}
 import akka.stream.alpakka.hdfs.scaladsl.RotationStrategy.TimedRotationStrategy
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy}
 import akka.stream.stage._
 import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
 import akka.util.ByteString
 import cats.data.State
-import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FSDataOutputStream, FileSystem, Syncable, Path => HadoopPath}
+import org.apache.hadoop.io.SequenceFile.{CompressionType, Writer}
+import org.apache.hadoop.io.compress.CompressionCodec
 import org.apache.hadoop.io.{SequenceFile, Writable}
 
 import scala.concurrent.Future
@@ -22,33 +23,35 @@ final case class WriteLog(path: String, offset: Long, rotation: Int)
 /**
  * Internal API
  */
-private[hdfs] final class HdfsFlowStage(
+private[hdfs] final class HDFSFlowStage[W <: Syncable with Closeable, I](
     fs: FileSystem,
     dest: String,
-    syncStrategy: SyncStrategy,
-    rotationStrategy: RotationStrategy,
-    settings: HdfsSinkSettings,
-    outputFileGenerator: (Int, Long) => HadoopPath
-) extends GraphStage[FlowShape[ByteString, Future[WriteLog]]] {
+    ss: SyncStrategy,
+    rs: RotationStrategy,
+    settings: HDFSSinkSettings,
+    outputFileGenerator: (Int, Long) => HadoopPath,
+    hdfsWriter: HDFSWriter[W, I]
+) extends GraphStage[FlowShape[I, Future[WriteLog]]] {
 
-  private val in = Inlet[ByteString](Logging.simpleName(this) + ".in")
+  private val in = Inlet[I](Logging.simpleName(this) + ".in")
   private val out = Outlet[Future[WriteLog]](Logging.simpleName(this) + ".out")
-  override val shape: FlowShape[ByteString, Future[WriteLog]] = FlowShape(in, out)
+  override val shape: FlowShape[I, Future[WriteLog]] = FlowShape(in, out)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-    new HdfsFlowLogic.ByteLogic(fs, dest, syncStrategy, rotationStrategy, settings, outputFileGenerator, in, out, shape)
+    new HDFSFlowLogic(fs, dest, ss, rs, settings, outputFileGenerator, hdfsWriter, in, out, shape)
 }
 
 /**
  * Internal API
  */
-private sealed abstract class HdfsFlowLogic[W <: Syncable with Closeable, I](
+private final class HDFSFlowLogic[W <: Syncable with Closeable, I](
     fs: FileSystem,
     dest: String,
     initialSyncStrategy: SyncStrategy,
     initialRotationStrategy: RotationStrategy,
-    settings: HdfsSinkSettings,
+    settings: HDFSSinkSettings,
     outputFileGenerator: (Int, Long) => HadoopPath,
+    hdfsWriter: HDFSWriter[W, I],
     inlet: Inlet[I],
     outlet: Outlet[Future[WriteLog]],
     shape: FlowShape[I, Future[WriteLog]]
@@ -58,12 +61,8 @@ private sealed abstract class HdfsFlowLogic[W <: Syncable with Closeable, I](
 
   private var state = {
     val initialFile = createOutputFile(0)
-    FlowState(fs, createOutput(initialFile), initialFile, initialRotationStrategy, initialSyncStrategy)
+    FlowState(fs, hdfsWriter.create(fs, initialFile), initialFile, initialRotationStrategy, initialSyncStrategy)
   }
-
-  protected def write(input: I): Runner1[W, Long]
-
-  protected def createOutput(file: HadoopPath): W
 
   setHandlers(inlet, outlet, this)
 
@@ -102,28 +101,29 @@ private sealed abstract class HdfsFlowLogic[W <: Syncable with Closeable, I](
   private def createOutputFile(c: Int): HadoopPath =
     outputFileGenerator(c, System.currentTimeMillis / 1000)
 
-  private def rotateOutput(s: FlowState[W]): FlowState[W] = {
-    s.output.close()
+  private def rotateOutput(state: FlowState[W]): FlowState[W] = {
+    state.output.close()
 
-    val newRotationCount = s.rotationCount + 1
+    val newRotationCount = state.rotationCount + 1
+    val newRotation = state.rotationStrategy.reset()
     val newFile = createOutputFile(newRotationCount)
-    val newOutput = createOutput(newFile)
-    val destPath = new HadoopPath(dest, s.file.getName)
+    val newOutput = hdfsWriter.create(fs, newFile)
+    val destPath = new HadoopPath(dest, state.file.getName)
 
-    fs.rename(s.file, destPath)
-    val message = WriteLog(destPath.getName, s.offset, newRotationCount)
+    fs.rename(state.file, destPath)
+    val message = WriteLog(destPath.getName, state.offset, newRotationCount)
     push(outlet, Future.successful(message))
 
-    s.copy(offset = 0,
-           file = newFile,
-           rotationCount = newRotationCount,
-           output = newOutput,
-           rotationStrategy = s.rotationStrategy.reset())
+    state.copy(offset = 0,
+               file = newFile,
+               rotationCount = newRotationCount,
+               output = newOutput,
+               rotationStrategy = newRotation)
   }
 
   private def onPushProgram(input: I) =
     for {
-      offset <- write(input)
+      offset <- hdfsWriter.write(input)
       _ <- calculateSync(null, offset)
       _ <- calculateRotation(offset)
       _ <- trySyncOutput
@@ -153,18 +153,18 @@ private sealed abstract class HdfsFlowLogic[W <: Syncable with Closeable, I](
 
   private def trySyncOutput: Runner1[W, Boolean] =
     State[FlowState[W], Boolean] { state =>
-      val done = if (state.syncStrategy.canSync) {
+      if (state.syncStrategy.canSync) {
         state.output.hsync()
-        state.syncStrategy.reset()
-        true
+        val newSync = state.syncStrategy.reset()
+        (state.copy(syncStrategy = newSync), true)
       } else {
-        false
+        (state.copy(), false)
       }
-      (state, done)
     }
+
 }
 
-private object HdfsFlowLogic {
+private object HDFSFlowLogic {
 
   type Runner0[W] = Runner1[W, Unit]
   type Runner1[W, A] = State[FlowState[W], A]
@@ -176,7 +176,7 @@ private object HdfsFlowLogic {
     case object Finished extends LogicState
   }
 
-  case class FlowState[W](
+  final case class FlowState[W](
       offset: Long,
       rotationCount: Int,
       output: W,
@@ -190,32 +190,20 @@ private object HdfsFlowLogic {
     def apply[W](fs: FileSystem, output: W, file: HadoopPath, rs: RotationStrategy, ss: SyncStrategy): FlowState[W] =
       new FlowState[W](0, 0, output, file, rs, ss, LogicState.Idle)
   }
+}
 
-  final class ByteLogic(
-      fs: FileSystem,
-      dest: String,
-      syncStrategy: SyncStrategy,
-      rotationStrategy: RotationStrategy,
-      settings: HdfsSinkSettings,
-      outputFileGenerator: (Int, Long) => HadoopPath,
-      inlet: Inlet[ByteString],
-      outlet: Outlet[Future[WriteLog]],
-      shape: FlowShape[ByteString, Future[WriteLog]]
-  ) extends HdfsFlowLogic[FSDataOutputStream, ByteString](
-        fs,
-        dest,
-        syncStrategy,
-        rotationStrategy,
-        settings,
-        outputFileGenerator,
-        inlet,
-        outlet,
-        shape
-      ) {
-    protected def createOutput(file: HadoopPath): FSDataOutputStream =
+private sealed trait HDFSWriter[W <: Syncable with Closeable, I] {
+  def write(input: I): Runner1[W, Long]
+  def create(fs: FileSystem, file: HadoopPath): W
+}
+
+private[hdfs] object HDFSWriter {
+
+  final case object DataWriter extends HDFSWriter[FSDataOutputStream, ByteString] {
+    def create(fs: FileSystem, file: HadoopPath): FSDataOutputStream =
       fs.create(file)
 
-    protected def write(input: ByteString): Runner1[FSDataOutputStream, Long] =
+    def write(input: ByteString): Runner1[FSDataOutputStream, Long] =
       State[FlowState[FSDataOutputStream], Long] { state =>
         val bytes = input.toArray
         val newOffset = state.offset + bytes.length
@@ -224,33 +212,24 @@ private object HdfsFlowLogic {
       }
   }
 
-  final class SequenceLogic[K <: Writable, V <: Writable](
-      fs: FileSystem,
-      conf: Configuration,
-      ops: Seq[SequenceFile.Writer.Option],
-      dest: String,
-      syncStrategy: SyncStrategy,
-      rotationStrategy: RotationStrategy,
-      settings: HdfsSinkSettings,
-      outputFileGenerator: (Int, Long) => HadoopPath,
-      inlet: Inlet[(K, V)],
-      outlet: Outlet[Future[WriteLog]],
-      shape: FlowShape[(K, V), Future[WriteLog]]
-  ) extends HdfsFlowLogic[SequenceFile.Writer, (K, V)](
-        fs,
-        dest,
-        syncStrategy,
-        rotationStrategy,
-        settings,
-        outputFileGenerator,
-        inlet,
-        outlet,
-        shape
-      ) {
-    protected def createOutput(file: HadoopPath): SequenceFile.Writer =
-      SequenceFile.createWriter(conf, ops: _*)
+  final case class SequenceWriter[K <: Writable, V <: Writable](
+      compressionType: CompressionType,
+      compressionCodec: CompressionCodec,
+      classK: Class[K],
+      classV: Class[V]
+  ) extends HDFSWriter[SequenceFile.Writer, (K, V)] {
+    private val DefaultOps: Seq[Writer.Option] = Seq(
+      SequenceFile.Writer.keyClass(classK),
+      SequenceFile.Writer.valueClass(classV),
+      SequenceFile.Writer.compression(compressionType, compressionCodec)
+    )
 
-    protected def write(input: (K, V)): Runner1[SequenceFile.Writer, Long] =
+    def create(fs: FileSystem, file: HadoopPath): SequenceFile.Writer = {
+      val ops = DefaultOps :+ SequenceFile.Writer.file(file)
+      SequenceFile.createWriter(fs.getConf, ops: _*)
+    }
+
+    def write(input: (K, V)): Runner1[SequenceFile.Writer, Long] =
       State[FlowState[SequenceFile.Writer], Long] { state =>
         state.output.append(input._1, input._2)
         val newOffset = state.output.getLength

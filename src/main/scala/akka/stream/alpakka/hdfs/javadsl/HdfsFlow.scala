@@ -3,24 +3,27 @@ package akka.stream.alpakka.hdfs.javadsl
 import java.util.function.BiFunction
 
 import akka.NotUsed
-import akka.stream.alpakka.hdfs.{HdfsSinkSettings, WriteLog}
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy, HdfsFlow => ScalaHdfsFlow}
+import akka.stream.alpakka.hdfs.{HDFSSinkSettings, WriteLog}
 import akka.stream.javadsl
 import akka.util.ByteString
 import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.hadoop.io.SequenceFile.CompressionType
+import org.apache.hadoop.io.Writable
+import org.apache.hadoop.io.compress.CompressionCodec
 
 object HdfsFlow {
 
-  def create(
+  def data(
       fs: FileSystem,
       dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
       outputFileGenerator: BiFunction[Int, Long, Path],
-      settings: HdfsSinkSettings
+      settings: HDFSSinkSettings
   ): javadsl.Flow[ByteString, WriteLog, NotUsed] =
     ScalaHdfsFlow
-      .create(
+      .data(
         fs,
         dest,
         syncStrategy,
@@ -30,17 +33,31 @@ object HdfsFlow {
       )
       .asJava
 
-  def create(fs: FileSystem,
-             dest: String,
-             rotationStrategy: RotationStrategy,
-             outputFileGenerator: BiFunction[Int, Long, Path],
-             settings: HdfsSinkSettings): javadsl.Flow[ByteString, WriteLog, NotUsed] =
-    create(fs, dest, SyncStrategy.no, rotationStrategy, outputFileGenerator, settings)
-
-  def create(fs: FileSystem,
-             dest: String,
-             outputFileGenerator: BiFunction[Int, Long, Path],
-             settings: HdfsSinkSettings): javadsl.Flow[ByteString, WriteLog, NotUsed] =
-    create(fs, dest, RotationStrategy.no, outputFileGenerator, settings)
+  def sequence[K <: Writable, V <: Writable](
+      fs: FileSystem,
+      dest: String,
+      syncStrategy: SyncStrategy,
+      rotationStrategy: RotationStrategy,
+      outputFileGenerator: BiFunction[Int, Long, Path],
+      compressionType: CompressionType,
+      compressionCodec: CompressionCodec,
+      settings: HDFSSinkSettings,
+      classK: Class[K],
+      classV: Class[V]
+  ): javadsl.Flow[(K, V), WriteLog, NotUsed] =
+    ScalaHdfsFlow
+      .sequence[K, V](
+        fs,
+        dest,
+        syncStrategy,
+        rotationStrategy,
+        (rc, t) => outputFileGenerator.apply(rc, t),
+        compressionType,
+        compressionCodec,
+        settings,
+        classK,
+        classV
+      )
+      .asJava
 
 }
