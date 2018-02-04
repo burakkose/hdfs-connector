@@ -15,6 +15,9 @@ import scala.concurrent.Future
 
 final case class WriteLog(path: String, offset: Long, rotation: Int)
 
+/**
+ * Internal API
+ */
 private[hdfs] final class HdfsFlowStage(
     fs: FileSystem,
     dest: String,
@@ -49,13 +52,13 @@ private[hdfs] final class HdfsFlowLogic(
     with InHandler
     with OutHandler {
 
-  private var logicState = FlowState(fs, createOutputFile(0), initialRotationStrategy, initialSyncStrategy)
+  private var state = FlowState(fs, createOutputFile(0), initialRotationStrategy, initialSyncStrategy)
 
   setHandlers(inlet, outlet, this)
 
   def onPush(): Unit =
-    logicState = onPushProgram(grab(inlet).toArray)
-      .runS(logicState)
+    state = onPushProgram(grab(inlet).toArray)
+      .runS(state)
       .value
 
   def onPull(): Unit =
@@ -72,7 +75,7 @@ private[hdfs] final class HdfsFlowLogic(
   }
 
   override def onTimer(timerKey: Any): Unit =
-    logicState = rotateOutput(logicState)
+    state = rotateOutput(state)
 
   override def onUpstreamFailure(ex: Throwable): Unit =
     failStage(ex)
@@ -159,6 +162,14 @@ private[hdfs] final class HdfsFlowLogic(
 
 private object HdfsFlowLogic {
 
+  sealed trait HdfsLogicState
+
+  object HdfsLogicState {
+    case object Idle extends HdfsLogicState
+    case object Writing extends HdfsLogicState
+    case object Finished extends HdfsLogicState
+  }
+
   type Runner0 = Runner1[Unit]
   type Runner1[A] = State[FlowState, A]
 
@@ -168,12 +179,13 @@ private object HdfsFlowLogic {
       output: FSDataOutputStream,
       file: HadoopPath,
       rotationStrategy: RotationStrategy,
-      syncStrategy: SyncStrategy
+      syncStrategy: SyncStrategy,
+      logicState: HdfsLogicState,
   )
 
   object FlowState {
     def apply(fs: FileSystem, file: HadoopPath, rs: RotationStrategy, ss: SyncStrategy): FlowState =
-      new FlowState(0, 0, fs.create(file), file, rs, ss)
+      new FlowState(0, 0, fs.create(file), file, rs, ss, HdfsLogicState.Idle)
   }
 
 }
