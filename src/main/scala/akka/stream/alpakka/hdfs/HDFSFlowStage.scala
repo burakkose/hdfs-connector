@@ -4,7 +4,7 @@ import java.io.Closeable
 
 import akka.NotUsed
 import akka.event.Logging
-import akka.stream.alpakka.hdfs.HDFSFlowLogic.{FlowState, Runner1}
+import akka.stream.alpakka.hdfs.HDFSFlowLogic.{FlowState, FlowStep}
 import akka.stream.alpakka.hdfs.scaladsl.RotationStrategy.TimedRotationStrategy
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy}
 import akka.stream.stage._
@@ -130,20 +130,20 @@ private final class HDFSFlowLogic[W <: Syncable with Closeable, I](
       _ <- tryRotateOutput
     } yield tryPull()
 
-  private def calculateRotation(offset: Long): Runner1[W, RotationStrategy] =
-    State[FlowState[W], RotationStrategy] { state =>
+  private def calculateRotation(offset: Long): FlowStep[W, RotationStrategy] =
+    FlowStep[W, RotationStrategy] { state =>
       val newRotation = state.rotationStrategy.calculate(offset)
       (state.copy(rotationStrategy = newRotation), newRotation)
     }
 
-  private def calculateSync(bytes: Array[Byte], offset: Long): Runner1[W, SyncStrategy] =
-    State[FlowState[W], SyncStrategy] { state =>
+  private def calculateSync(bytes: Array[Byte], offset: Long): FlowStep[W, SyncStrategy] =
+    FlowStep[W, SyncStrategy] { state =>
       val newSync = state.syncStrategy.calculate(bytes, offset)
       (state.copy(syncStrategy = newSync), newSync)
     }
 
-  private def tryRotateOutput: Runner1[W, Boolean] =
-    State[FlowState[W], Boolean] { state =>
+  private def tryRotateOutput: FlowStep[W, Boolean] =
+    FlowStep[W, Boolean] { state =>
       if (state.rotationStrategy.canRotate) {
         (rotateOutput(state), true)
       } else {
@@ -151,8 +151,8 @@ private final class HDFSFlowLogic[W <: Syncable with Closeable, I](
       }
     }
 
-  private def trySyncOutput: Runner1[W, Boolean] =
-    State[FlowState[W], Boolean] { state =>
+  private def trySyncOutput: FlowStep[W, Boolean] =
+    FlowStep[W, Boolean] { state =>
       if (state.syncStrategy.canSync) {
         state.output.hsync()
         val newSync = state.syncStrategy.reset()
@@ -166,8 +166,10 @@ private final class HDFSFlowLogic[W <: Syncable with Closeable, I](
 
 private object HDFSFlowLogic {
 
-  type Runner0[W] = Runner1[W, Unit]
-  type Runner1[W, A] = State[FlowState[W], A]
+  type FlowStep[W, A] = State[FlowState[W], A]
+  object FlowStep {
+    def apply[W, A](f: FlowState[W] => (FlowState[W], A)): FlowStep[W, A] = State.apply(f)
+  }
 
   sealed trait LogicState
   object LogicState {
@@ -193,7 +195,7 @@ private object HDFSFlowLogic {
 }
 
 private sealed trait HDFSWriter[W <: Syncable with Closeable, I] {
-  def write(input: I): Runner1[W, Long]
+  def write(input: I): FlowStep[W, Long]
   def create(fs: FileSystem, file: HadoopPath): W
 }
 
@@ -203,8 +205,8 @@ private[hdfs] object HDFSWriter {
     def create(fs: FileSystem, file: HadoopPath): FSDataOutputStream =
       fs.create(file)
 
-    def write(input: ByteString): Runner1[FSDataOutputStream, Long] =
-      State[FlowState[FSDataOutputStream], Long] { state =>
+    def write(input: ByteString): FlowStep[FSDataOutputStream, Long] =
+      FlowStep[FSDataOutputStream, Long] { state =>
         val bytes = input.toArray
         val newOffset = state.offset + bytes.length
         state.output.write(bytes)
@@ -229,8 +231,8 @@ private[hdfs] object HDFSWriter {
       SequenceFile.createWriter(fs.getConf, ops: _*)
     }
 
-    def write(input: (K, V)): Runner1[SequenceFile.Writer, Long] =
-      State[FlowState[SequenceFile.Writer], Long] { state =>
+    def write(input: (K, V)): FlowStep[SequenceFile.Writer, Long] =
+      FlowStep[SequenceFile.Writer, Long] { state =>
         state.output.append(input._1, input._2)
         val newOffset = state.output.getLength
         (state.copy(offset = newOffset), newOffset)
