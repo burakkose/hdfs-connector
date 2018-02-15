@@ -124,7 +124,7 @@ private final class HDFSFlowLogic[W <: Syncable with Closeable, I](
   private def onPushProgram(input: I) =
     for {
       offset <- hdfsWriter.write(input)
-      _ <- calculateSync(null, offset)
+      _ <- calculateSync(offset)
       _ <- calculateRotation(offset)
       _ <- trySyncOutput
       _ <- tryRotateOutput
@@ -136,9 +136,9 @@ private final class HDFSFlowLogic[W <: Syncable with Closeable, I](
       (state.copy(rotationStrategy = newRotation), newRotation)
     }
 
-  private def calculateSync(bytes: Array[Byte], offset: Long): FlowStep[W, SyncStrategy] =
+  private def calculateSync(offset: Long): FlowStep[W, SyncStrategy] =
     FlowStep[W, SyncStrategy] { state =>
-      val newSync = state.syncStrategy.calculate(bytes, offset)
+      val newSync = state.syncStrategy.calculate(offset)
       (state.copy(syncStrategy = newSync), newSync)
     }
 
