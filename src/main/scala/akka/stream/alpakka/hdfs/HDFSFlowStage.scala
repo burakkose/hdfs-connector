@@ -28,7 +28,7 @@ private[hdfs] final class HDFSFlowStage[W <: Syncable with Closeable, I](
     dest: String,
     ss: SyncStrategy,
     rs: RotationStrategy,
-    settings: HDFSSinkSettings,
+    settings: HdfsWritingSettings,
     outputFileGenerator: (Int, Long) => HadoopPath,
     hdfsWriter: HDFSWriter[W, I]
 ) extends GraphStage[FlowShape[I, Future[WriteLog]]] {
@@ -49,7 +49,7 @@ private final class HDFSFlowLogic[W <: Syncable with Closeable, I](
     dest: String,
     initialSyncStrategy: SyncStrategy,
     initialRotationStrategy: RotationStrategy,
-    settings: HDFSSinkSettings,
+    settings: HdfsWritingSettings,
     outputFileGenerator: (Int, Long) => HadoopPath,
     hdfsWriter: HDFSWriter[W, I],
     inlet: Inlet[I],

@@ -3,7 +3,7 @@ package akka.stream.alpakka.hdfs
 import scala.concurrent.duration._
 import scala.util.matching.Regex
 
-final case class HDFSSinkSettings(
+final case class HdfsWritingSettings(
     overwrite: Boolean = true,
     bufferSize: Int = 4096,
     replication: Int = 3,
@@ -13,35 +13,35 @@ final case class HDFSSinkSettings(
     pattern: Regex = "*".r,
     chunkSize: Int = 4096,
 ) {
-  def withOverwrite(overwrite: Boolean): HDFSSinkSettings =
+  def withOverwrite(overwrite: Boolean): HdfsWritingSettings =
     copy(overwrite = overwrite)
 
-  def withBufferSize(bufferSize: Int): HDFSSinkSettings =
+  def withBufferSize(bufferSize: Int): HdfsWritingSettings =
     copy(bufferSize = bufferSize)
 
-  def withReplication(replication: Int): HDFSSinkSettings =
+  def withReplication(replication: Int): HdfsWritingSettings =
     copy(replication = replication)
 
-  def withBlockSize(blockSize: Int): HDFSSinkSettings =
+  def withBlockSize(blockSize: Int): HdfsWritingSettings =
     copy(blockSize = blockSize)
 
-  def withInitialDelay(initialDelay: FiniteDuration): HDFSSinkSettings =
+  def withInitialDelay(initialDelay: FiniteDuration): HdfsWritingSettings =
     copy(initialDelay = initialDelay)
 
-  def withDelay(delay: FiniteDuration): HDFSSinkSettings =
+  def withDelay(delay: FiniteDuration): HdfsWritingSettings =
     copy(delay = delay)
 
-  def withPattern(pattern: Regex): HDFSSinkSettings =
+  def withPattern(pattern: Regex): HdfsWritingSettings =
     copy(pattern = pattern)
 
-  def withChunkSize(chunkSize: Int): HDFSSinkSettings =
+  def withChunkSize(chunkSize: Int): HdfsWritingSettings =
     copy(chunkSize = chunkSize)
 }
 
-object HDFSSinkSettings {
+object HdfsWritingSettings {
 
   /**
    * Java API
    */
-  def create(): HDFSSinkSettings = HDFSSinkSettings()
+  def create(): HdfsWritingSettings = HdfsWritingSettings()
 }

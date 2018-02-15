@@ -4,7 +4,7 @@ import java.util.function.BiFunction
 
 import akka.NotUsed
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy, HdfsFlow => ScalaHdfsFlow}
-import akka.stream.alpakka.hdfs.{HDFSSinkSettings, WriteLog}
+import akka.stream.alpakka.hdfs.{HdfsWritingSettings, WriteLog}
 import akka.stream.javadsl
 import akka.util.ByteString
 import org.apache.hadoop.fs.{FileSystem, Path}
@@ -20,7 +20,7 @@ object HdfsFlow {
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
       outputFileGenerator: BiFunction[Int, Long, Path],
-      settings: HDFSSinkSettings
+      settings: HdfsWritingSettings
   ): javadsl.Flow[ByteString, WriteLog, NotUsed] =
     ScalaHdfsFlow
       .data(
@@ -41,7 +41,7 @@ object HdfsFlow {
       outputFileGenerator: BiFunction[Int, Long, Path],
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
-      settings: HDFSSinkSettings,
+      settings: HdfsWritingSettings,
       classK: Class[K],
       classV: Class[V]
   ): javadsl.Flow[(K, V), WriteLog, NotUsed] =

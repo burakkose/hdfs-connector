@@ -1,7 +1,7 @@
 package akka.stream.alpakka.hdfs.scaladsl
 
 import akka.Done
-import akka.stream.alpakka.hdfs.HDFSSinkSettings
+import akka.stream.alpakka.hdfs.HdfsWritingSettings
 import akka.stream.scaladsl.{Keep, Sink}
 import akka.util.ByteString
 import org.apache.hadoop.fs.{FileSystem, Path}
@@ -19,7 +19,7 @@ class HdfsSink {
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
       outputFileGenerator: (Int, Long) => Path,
-      settings: HDFSSinkSettings
+      settings: HdfsWritingSettings
   ): Sink[ByteString, Future[Done]] =
     HdfsFlow
       .data(fs, dest, syncStrategy, rotationStrategy, outputFileGenerator, settings)
@@ -33,7 +33,7 @@ class HdfsSink {
       outputFileGenerator: (Int, Long) => Path,
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
-      settings: HDFSSinkSettings,
+      settings: HdfsWritingSettings,
       classK: Class[K],
       classV: Class[V]
   ): Sink[(K, V), Future[Done]] =

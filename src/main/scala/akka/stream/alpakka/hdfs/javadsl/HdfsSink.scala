@@ -3,7 +3,7 @@ package akka.stream.alpakka.hdfs.javadsl
 import java.util.concurrent.CompletionStage
 import java.util.function.BiFunction
 
-import akka.stream.alpakka.hdfs.HDFSSinkSettings
+import akka.stream.alpakka.hdfs.HdfsWritingSettings
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy}
 import akka.stream.javadsl
 import akka.util.ByteString
@@ -21,7 +21,7 @@ object HdfsSink {
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
       outputFileGenerator: BiFunction[Int, Long, Path],
-      settings: HDFSSinkSettings
+      settings: HdfsWritingSettings
   ): javadsl.Sink[ByteString, CompletionStage[Done]] =
     HdfsFlow
       .data(fs, dest, syncStrategy, rotationStrategy, outputFileGenerator, settings)
@@ -35,7 +35,7 @@ object HdfsSink {
       outputFileGenerator: BiFunction[Int, Long, Path],
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
-      settings: HDFSSinkSettings,
+      settings: HdfsWritingSettings,
       classK: Class[K],
       classV: Class[V]
   ): javadsl.Sink[(K, V), CompletionStage[Done]] =

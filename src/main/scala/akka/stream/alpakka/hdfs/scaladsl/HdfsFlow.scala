@@ -1,7 +1,7 @@
 package akka.stream.alpakka.hdfs.scaladsl
 
 import akka.NotUsed
-import akka.stream.alpakka.hdfs.{HDFSFlowStage, HDFSSinkSettings, HDFSWriter, WriteLog}
+import akka.stream.alpakka.hdfs.{HDFSFlowStage, HDFSWriter, HdfsWritingSettings, WriteLog}
 import akka.stream.scaladsl.Flow
 import akka.util.ByteString
 import org.apache.hadoop.fs.{FileSystem, Path}
@@ -17,7 +17,7 @@ object HdfsFlow {
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
       outputFileGenerator: (Int, Long) => Path,
-      settings: HDFSSinkSettings
+      settings: HdfsWritingSettings
   ): Flow[ByteString, WriteLog, NotUsed] =
     Flow
       .fromGraph(
@@ -41,7 +41,7 @@ object HdfsFlow {
       outputFileGenerator: (Int, Long) => Path,
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
-      settings: HDFSSinkSettings,
+      settings: HdfsWritingSettings,
       classK: Class[K],
       classV: Class[V]
   ): Flow[(K, V), WriteLog, NotUsed] =
