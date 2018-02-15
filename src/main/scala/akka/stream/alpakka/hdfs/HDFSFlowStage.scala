@@ -199,7 +199,7 @@ private sealed trait HDFSWriter[W <: Syncable with Closeable, I] {
 
 private[hdfs] object HDFSWriter {
 
-  final case object DataWriter extends HDFSWriter[FSDataOutputStream, ByteString] {
+  case object DataWriter extends HDFSWriter[FSDataOutputStream, ByteString] {
     def create(fs: FileSystem, file: HadoopPath): FSDataOutputStream =
       fs.create(file)
 

@@ -5,10 +5,10 @@ import scala.concurrent.duration.FiniteDuration
 sealed abstract class FileUnit(val byteCount: Long)
 
 object FileUnit {
-  final case object KB extends FileUnit(Math.pow(2, 10).toLong)
-  final case object MB extends FileUnit(Math.pow(2, 20).toLong)
-  final case object GB extends FileUnit(Math.pow(2, 30).toLong)
-  final case object TB extends FileUnit(Math.pow(2, 40).toLong)
+  case object KB extends FileUnit(Math.pow(2, 10).toLong)
+  case object MB extends FileUnit(Math.pow(2, 20).toLong)
+  case object GB extends FileUnit(Math.pow(2, 30).toLong)
+  case object TB extends FileUnit(Math.pow(2, 40).toLong)
 }
 
 sealed trait RotationStrategy {
