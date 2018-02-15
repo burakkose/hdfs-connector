@@ -13,7 +13,7 @@ import akka.util.ByteString
 import cats.data.State
 import org.apache.hadoop.fs.{FSDataOutputStream, FileSystem, Syncable, Path => HadoopPath}
 import org.apache.hadoop.io.SequenceFile.{CompressionType, Writer}
-import org.apache.hadoop.io.compress.CompressionCodec
+import org.apache.hadoop.io.compress.{CodecPool, CompressionCodec, CompressionOutputStream}
 import org.apache.hadoop.io.{SequenceFile, Writable}
 
 import scala.concurrent.Future
@@ -158,7 +158,7 @@ private final class HDFSFlowLogic[W <: Syncable with Closeable, I](
         val newSync = state.syncStrategy.reset()
         (state.copy(syncStrategy = newSync), true)
       } else {
-        (state.copy(), false)
+        (state, false)
       }
     }
 
@@ -195,8 +195,8 @@ private object HDFSFlowLogic {
 }
 
 private sealed trait HDFSWriter[W <: Syncable with Closeable, I] {
-  def write(input: I): FlowStep[W, Long]
   def create(fs: FileSystem, file: HadoopPath): W
+  def write(input: I): FlowStep[W, Long]
 }
 
 private[hdfs] object HDFSWriter {
@@ -211,6 +211,22 @@ private[hdfs] object HDFSWriter {
         val newOffset = state.offset + bytes.length
         state.output.write(bytes)
         (state.copy(offset = newOffset), newOffset)
+      }
+  }
+
+  final case class CompressedDataWriter(
+      compressionType: CompressionType,
+      compressionCodec: CompressionCodec
+  ) extends HDFSWriter[CompressionOutputStream, ByteString] {
+    def create(fs: FileSystem, file: HadoopPath): CompressionOutputStream = {
+      val compressor = CodecPool.getCompressor(compressionCodec, fs.getConf)
+      val fsOut = fs.create(file)
+      compressionCodec.createOutputStream(fsOut, compressor)
+    }
+
+    def write(input: ByteString): FlowStep[CompressionOutputStream, Long] =
+      FlowStep[CompressionOutputStream, Long] { state =>
+        state.output.
       }
   }
 
