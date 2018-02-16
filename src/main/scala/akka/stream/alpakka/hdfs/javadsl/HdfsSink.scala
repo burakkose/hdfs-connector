@@ -15,16 +15,37 @@ import org.apache.hadoop.io.compress.CompressionCodec
 
 object HdfsSink {
 
-  def create(
+  def data(
       fs: FileSystem,
       dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: BiFunction[Int, Long, Path],
+      outputFileGenerator: BiFunction[Long, Long, Path],
       settings: HdfsWritingSettings
   ): javadsl.Sink[ByteString, CompletionStage[Done]] =
     HdfsFlow
       .data(fs, dest, syncStrategy, rotationStrategy, outputFileGenerator, settings)
+      .toMat(javadsl.Sink.ignore, javadsl.Keep.right[NotUsed, CompletionStage[Done]])
+
+  def compressed(
+      fs: FileSystem,
+      dest: String,
+      syncStrategy: SyncStrategy,
+      rotationStrategy: RotationStrategy,
+      outputFileGenerator: BiFunction[Long, Long, Path],
+      compressionType: CompressionType,
+      compressionCodec: CompressionCodec,
+      settings: HdfsWritingSettings
+  ): javadsl.Sink[ByteString, CompletionStage[Done]] =
+    HdfsFlow
+      .compressed(fs,
+                  dest,
+                  syncStrategy,
+                  rotationStrategy,
+                  outputFileGenerator,
+                  compressionType,
+                  compressionCodec,
+                  settings)
       .toMat(javadsl.Sink.ignore, javadsl.Keep.right[NotUsed, CompletionStage[Done]])
 
   def sequence[K <: Writable, V <: Writable](
@@ -32,7 +53,7 @@ object HdfsSink {
       dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: BiFunction[Int, Long, Path],
+      outputFileGenerator: BiFunction[Long, Long, Path],
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
       settings: HdfsWritingSettings,

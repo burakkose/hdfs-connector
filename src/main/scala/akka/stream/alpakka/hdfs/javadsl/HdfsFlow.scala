@@ -19,7 +19,7 @@ object HdfsFlow {
       dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: BiFunction[Int, Long, Path],
+      outputFileGenerator: BiFunction[Long, Long, Path],
       settings: HdfsWritingSettings
   ): javadsl.Flow[ByteString, WriteLog, NotUsed] =
     ScalaHdfsFlow
@@ -33,12 +33,35 @@ object HdfsFlow {
       )
       .asJava
 
+  def compressed(
+      fs: FileSystem,
+      dest: String,
+      syncStrategy: SyncStrategy,
+      rotationStrategy: RotationStrategy,
+      outputFileGenerator: BiFunction[Long, Long, Path],
+      compressionType: CompressionType,
+      compressionCodec: CompressionCodec,
+      settings: HdfsWritingSettings
+  ): javadsl.Flow[ByteString, WriteLog, NotUsed] =
+    ScalaHdfsFlow
+      .compressed(
+        fs,
+        dest,
+        syncStrategy,
+        rotationStrategy,
+        (rc, t) => outputFileGenerator.apply(rc, t),
+        compressionType,
+        compressionCodec,
+        settings
+      )
+      .asJava
+
   def sequence[K <: Writable, V <: Writable](
       fs: FileSystem,
       dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: BiFunction[Int, Long, Path],
+      outputFileGenerator: BiFunction[Long, Long, Path],
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
       settings: HdfsWritingSettings,

@@ -16,19 +16,39 @@ object HdfsFlow {
       dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: (Int, Long) => Path,
+      outputFileGenerator: (Long, Long) => Path,
       settings: HdfsWritingSettings
   ): Flow[ByteString, WriteLog, NotUsed] =
     Flow
       .fromGraph(
         new HDFSFlowStage(
-          fs,
           dest,
           syncStrategy,
           rotationStrategy,
           settings,
-          outputFileGenerator,
-          HDFSWriter.DataWriter
+          HDFSWriter.DataWriter(fs, outputFileGenerator)
+        )
+      )
+      .mapAsync(1)(identity)
+
+  def compressed(
+      fs: FileSystem,
+      dest: String,
+      syncStrategy: SyncStrategy,
+      rotationStrategy: RotationStrategy,
+      outputFileGenerator: (Long, Long) => Path,
+      compressionType: CompressionType,
+      compressionCodec: CompressionCodec,
+      settings: HdfsWritingSettings
+  ): Flow[ByteString, WriteLog, NotUsed] =
+    Flow
+      .fromGraph(
+        new HDFSFlowStage(
+          dest,
+          syncStrategy,
+          rotationStrategy,
+          settings,
+          HDFSWriter.CompressedDataWriter(fs, compressionType, compressionCodec, outputFileGenerator)
         )
       )
       .mapAsync(1)(identity)
@@ -38,7 +58,7 @@ object HdfsFlow {
       dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: (Int, Long) => Path,
+      outputFileGenerator: (Long, Long) => Path,
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
       settings: HdfsWritingSettings,
@@ -48,13 +68,11 @@ object HdfsFlow {
     Flow
       .fromGraph(
         new HDFSFlowStage(
-          fs,
           dest,
           syncStrategy,
           rotationStrategy,
           settings,
-          outputFileGenerator,
-          HDFSWriter.SequenceWriter[K, V](compressionType, compressionCodec, classK, classV)
+          HDFSWriter.SequenceWriter(fs, compressionType, compressionCodec, classK, classV, outputFileGenerator)
         )
       )
       .mapAsync(1)(identity)
