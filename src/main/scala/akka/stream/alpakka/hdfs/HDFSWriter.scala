@@ -7,13 +7,16 @@ import org.apache.hadoop.io.compress.{CodecPool, CompressionCodec}
 import org.apache.hadoop.io.{SequenceFile, Writable}
 
 private[hdfs] sealed trait HDFSWriter[W, I] {
-  protected val output: W = create(fs, currentFile)
+  protected lazy val output: W = create(fs, currentFile)
 
   def sync(): Unit
   def currentFile: Path
   def write(input: I, currentOffset: Long): Long
   def rotate(rotationCount: Long): HDFSWriter[W, I]
   def moveTo(destination: String): Boolean = {
+    val baseDestPath = new Path(destination)
+    if(!fs.exists(baseDestPath))
+      fs.mkdirs(baseDestPath)
     val destPath = new Path(destination, currentFile.getName)
     fs.rename(currentFile, destPath)
   }
@@ -48,8 +51,9 @@ private[hdfs] object HDFSWriter {
 
     def sync(): Unit = output.hsync()
 
-    protected def create(fs: FileSystem, file: Path): FSDataOutputStream =
+    protected def create(fs: FileSystem, file: Path): FSDataOutputStream = {
       fs.create(file)
+    }
   }
 
   object DataWriter {

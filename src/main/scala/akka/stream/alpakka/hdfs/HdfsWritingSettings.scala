@@ -10,7 +10,7 @@ final case class HdfsWritingSettings(
     blockSize: Int = 67108864,
     initialDelay: FiniteDuration = 0.millis,
     delay: FiniteDuration = 0.millis,
-    pattern: Regex = "*".r,
+   // pattern: Regex = Regex.,
     chunkSize: Int = 4096,
 ) {
   def withOverwrite(overwrite: Boolean): HdfsWritingSettings = copy(overwrite = overwrite)
@@ -19,7 +19,7 @@ final case class HdfsWritingSettings(
   def withBlockSize(blockSize: Int): HdfsWritingSettings = copy(blockSize = blockSize)
   def withInitialDelay(initialDelay: FiniteDuration): HdfsWritingSettings = copy(initialDelay = initialDelay)
   def withDelay(delay: FiniteDuration): HdfsWritingSettings = copy(delay = delay)
-  def withPattern(pattern: Regex): HdfsWritingSettings = copy(pattern = pattern)
+ // def withPattern(pattern: Regex): HdfsWritingSettings = copy(pattern = pattern)
   def withChunkSize(chunkSize: Int): HdfsWritingSettings = copy(chunkSize = chunkSize)
 }
 

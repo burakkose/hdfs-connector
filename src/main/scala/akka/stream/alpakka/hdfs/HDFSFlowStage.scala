@@ -11,7 +11,7 @@ import cats.data.State
 
 import scala.concurrent.Future
 
-final case class WriteLog(path: String, offset: Long, rotation: Int)
+final case class WriteLog(path: String, rotation: Int)
 
 /**
  * Internal API
@@ -85,12 +85,13 @@ private final class HDFSFlowLogic[W, I](
     }
 
   private def rotateOutput(state: FlowState[W, I]): FlowState[W, I] = {
+    state.writer.moveTo(dest)
+
     val newRotationCount = state.rotationCount + 1
     val newRotation = state.rotationStrategy.reset()
     val newWriter = state.writer.rotate(newRotationCount)
 
-    newWriter.moveTo(dest)
-    val message = WriteLog(newWriter.currentFile.getName, state.offset, newRotationCount)
+    val message = WriteLog(newWriter.currentFile.getName, newRotationCount)
     push(outlet, Future.successful(message))
 
     state.copy(offset = 0, rotationCount = newRotationCount, writer = newWriter, rotationStrategy = newRotation)

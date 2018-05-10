@@ -4,12 +4,12 @@ sealed trait SyncStrategy extends Strategy {
   type S = SyncStrategy
 }
 object SyncStrategy {
-  def count(c: Int): SyncStrategy = CountSyncStrategy(0, c)
+  def count(c: Long): SyncStrategy = CountSyncStrategy(0, c)
   def no: SyncStrategy = NoSyncStrategy
 
   private final case class CountSyncStrategy(
-      executeCount: Int = 0,
-      count: Int
+      executeCount: Long = 0,
+      count: Long
   ) extends SyncStrategy {
     def should(): Boolean = executeCount >= count
     def reset(): SyncStrategy = copy(executeCount = 0)
