@@ -99,8 +99,8 @@ private final class HDFSFlowLogic[W, I](
   private def onPushProgram(input: I) =
     for {
       offset <- write(input)
-      _ <- calculateSync(offset)
-      _ <- calculateRotation(offset)
+      _ <- processSync(offset)
+      _ <- processRotation(offset)
       _ <- trySyncOutput
       _ <- tryRotateOutput
     } yield tryPull()
@@ -111,21 +111,21 @@ private final class HDFSFlowLogic[W, I](
       (state.copy(offset = newOffset), newOffset)
     }
 
-  private def calculateRotation(offset: Long): FlowStep[W, I, RotationStrategy] =
+  private def processRotation(offset: Long): FlowStep[W, I, RotationStrategy] =
     FlowStep[W, I, RotationStrategy] { state =>
-      val newRotation = state.rotationStrategy.calculate(offset)
+      val newRotation = state.rotationStrategy.run(offset)
       (state.copy(rotationStrategy = newRotation), newRotation)
     }
 
-  private def calculateSync(offset: Long): FlowStep[W, I, SyncStrategy] =
+  private def processSync(offset: Long): FlowStep[W, I, SyncStrategy] =
     FlowStep[W, I, SyncStrategy] { state =>
-      val newSync = state.syncStrategy.calculate(offset)
+      val newSync = state.syncStrategy.run(offset)
       (state.copy(syncStrategy = newSync), newSync)
     }
 
   private def tryRotateOutput: FlowStep[W, I, Boolean] =
     FlowStep[W, I, Boolean] { state =>
-      if (state.rotationStrategy.canRotate) {
+      if (state.rotationStrategy.should()) {
         (rotateOutput(state), true)
       } else {
         (state, false)
@@ -134,7 +134,7 @@ private final class HDFSFlowLogic[W, I](
 
   private def trySyncOutput: FlowStep[W, I, Boolean] =
     FlowStep[W, I, Boolean] { state =>
-      if (state.syncStrategy.canSync) {
+      if (state.syncStrategy.should()) {
         state.writer.sync()
         val newSync = state.syncStrategy.reset()
         (state.copy(syncStrategy = newSync), true)
