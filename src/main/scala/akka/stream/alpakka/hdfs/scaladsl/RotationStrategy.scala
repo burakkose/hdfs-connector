@@ -14,9 +14,25 @@ sealed trait RotationStrategy extends Strategy {
   type S = RotationStrategy
 }
 object RotationStrategy {
+
+  /*
+   * Creates [[SizeRotationStrategy]]
+   */
   def sized(count: Double, unit: FileUnit): RotationStrategy = SizeRotationStrategy(0, 0, count * unit.byteCount)
+
+  /*
+   * Creates [[CountedRotationStrategy]]
+   */
   def counted(size: Long): RotationStrategy = CountedRotationStrategy(0, size)
+
+  /*
+   * Creates [[TimedRotationStrategy]]
+   */
   def timed(interval: FiniteDuration): RotationStrategy = TimedRotationStrategy(interval)
+
+  /*
+   * Creates [[NoRotationStrategy]]
+   */
   def none: RotationStrategy = NoRotationStrategy
 
   private final case class SizeRotationStrategy(

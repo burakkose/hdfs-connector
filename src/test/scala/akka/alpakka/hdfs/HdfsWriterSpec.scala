@@ -18,7 +18,7 @@ import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, Matchers, WordSpecL
 import scala.concurrent.Await
 import scala.concurrent.duration.{Duration, _}
 
-class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with BeforeAndAfterEach {
+class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with BeforeAndAfterEach {
 
   private var hdfsCluster: MiniDFSCluster = _
 
@@ -180,9 +180,7 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
       files.size shouldEqual 1
       files.head.getLen shouldEqual books.map(_.toArray.length).sum
     }
-
-
-/*    "use timed rotation ang ignore empty files" in {
+    /*    "use timed rotation ang ignore empty files" in {
       val probe = TestProbe()
 
       val cancellable = Source
@@ -221,7 +219,6 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
     for (file <- fs.listStatus(p) if file.getLen > 0)
       yield file
   }
-
 
   override protected def afterEach(): Unit = {
     fs.delete(new Path(settings.destination), true)

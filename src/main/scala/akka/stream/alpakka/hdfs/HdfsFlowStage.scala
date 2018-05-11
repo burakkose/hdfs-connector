@@ -2,7 +2,7 @@ package akka.stream.alpakka.hdfs
 
 import akka.NotUsed
 import akka.event.Logging
-import akka.stream.alpakka.hdfs.HDFSFlowLogic.{FlowState, FlowStep, LogicState}
+import akka.stream.alpakka.hdfs.HdfsFlowLogic.{FlowState, FlowStep, LogicState}
 import akka.stream.alpakka.hdfs.scaladsl.RotationStrategy.TimedRotationStrategy
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy}
 import akka.stream.stage._
@@ -16,11 +16,11 @@ final case class WriteLog(path: String, rotation: Int)
 /**
  * Internal API
  */
-private[hdfs] final class HDFSFlowStage[W, I](
+private[hdfs] final class HdfsFlowStage[W, I](
     ss: SyncStrategy,
     rs: RotationStrategy,
     settings: HdfsWritingSettings,
-    hdfsWriter: HDFSWriter[W, I]
+    hdfsWriter: HdfsWriter[W, I]
 ) extends GraphStage[FlowShape[I, Future[WriteLog]]] {
 
   private val in = Inlet[I](Logging.simpleName(this) + ".in")
@@ -28,17 +28,17 @@ private[hdfs] final class HDFSFlowStage[W, I](
   override val shape: FlowShape[I, Future[WriteLog]] = FlowShape(in, out)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-    new HDFSFlowLogic(ss, rs, settings, hdfsWriter, in, out, shape)
+    new HdfsFlowLogic(ss, rs, settings, hdfsWriter, in, out, shape)
 }
 
 /**
  * Internal API
  */
-private final class HDFSFlowLogic[W, I](
+private final class HdfsFlowLogic[W, I](
     initialSyncStrategy: SyncStrategy,
     initialRotationStrategy: RotationStrategy,
     settings: HdfsWritingSettings,
-    initialHdfsWriter: HDFSWriter[W, I],
+    initialHdfsWriter: HdfsWriter[W, I],
     inlet: Inlet[I],
     outlet: Outlet[Future[WriteLog]],
     shape: FlowShape[I, Future[WriteLog]]
@@ -163,7 +163,7 @@ private final class HDFSFlowLogic[W, I](
 
 }
 
-private[hdfs] object HDFSFlowLogic {
+private[hdfs] object HdfsFlowLogic {
 
   type FlowStep[W, I, A] = State[FlowState[W, I], A]
   object FlowStep {
@@ -179,7 +179,7 @@ private[hdfs] object HDFSFlowLogic {
   final case class FlowState[W, I](
       offset: Long,
       rotationCount: Int,
-      writer: HDFSWriter[W, I],
+      writer: HdfsWriter[W, I],
       rotationStrategy: RotationStrategy,
       syncStrategy: SyncStrategy,
       logicState: LogicState,
@@ -187,7 +187,7 @@ private[hdfs] object HDFSFlowLogic {
 
   object FlowState {
     def apply[W, I](
-        writer: HDFSWriter[W, I],
+        writer: HdfsWriter[W, I],
         rs: RotationStrategy,
         ss: SyncStrategy
     ): FlowState[W, I] = new FlowState[W, I](0, 0, writer, rs, ss, LogicState.Idle)

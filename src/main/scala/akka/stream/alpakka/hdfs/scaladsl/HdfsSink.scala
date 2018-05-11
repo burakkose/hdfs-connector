@@ -13,6 +13,14 @@ import scala.concurrent.Future
 
 class HdfsSink {
 
+  /*
+   * Scala API: creates a Sink with [[HdfsFlowStage]] for [[FSDataOutputStream]]
+   *
+   * @param fs HDFS FileSystem
+   * @param syncStrategy Sync Strategy
+   * @param rotationStrategy Rotation Strategy
+   * @param settings Hdfs writing settings
+   */
   def data(
       fs: FileSystem,
       syncStrategy: SyncStrategy,
@@ -23,29 +31,42 @@ class HdfsSink {
       .data(fs, syncStrategy, rotationStrategy, settings)
       .toMat(Sink.ignore)(Keep.right)
 
+  /*
+   * Scala API: creates a Sink with [[HdfsFlowStage]] for [[CompressionOutputStream]]
+   *
+   * @param fs HDFS FileSystem
+   * @param syncStrategy Sync Strategy
+   * @param rotationStrategy Rotation Strategy
+   * @param compressionCodec a class encapsulates a streaming compression/decompression pair.
+   * @param settings Hdfs writing settings
+   */
   def compressed(
       fs: FileSystem,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: (Long, Long) => Path,
-      compressionType: CompressionType,
       compressionCodec: CompressionCodec,
       settings: HdfsWritingSettings
   ): Sink[ByteString, Future[Done]] =
     HdfsFlow
-      .compressed(fs,
-                  syncStrategy,
-                  rotationStrategy,
-                  compressionType,
-                  compressionCodec,
-                  settings)
+      .compressed(fs, syncStrategy, rotationStrategy, compressionCodec, settings)
       .toMat(Sink.ignore)(Keep.right)
 
+  /*
+   * Scala API: creates a Sink with [[HdfsFlowStage]] for [[SequenceFile.Writer]]
+   *
+   * @param fs Hdfs FileSystem
+   * @param syncStrategy sync strategy
+   * @param rotationStrategy rotation strategy
+   * @param compressionType a compression type used to compress key/value pairs in the SequenceFile
+   * @param compressionCodec a class encapsulates a streaming compression/decompression pair.
+   * @param settings Hdfs writing settings
+   * @param classK a key class
+   * @param classV a value class
+   */
   def sequence[K <: Writable, V <: Writable](
       fs: FileSystem,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: (Long, Long) => Path,
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
       settings: HdfsWritingSettings,
@@ -64,5 +85,4 @@ class HdfsSink {
         classV
       )
       .toMat(Sink.ignore)(Keep.right)
-
 }

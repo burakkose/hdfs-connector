@@ -4,7 +4,15 @@ sealed trait SyncStrategy extends Strategy {
   type S = SyncStrategy
 }
 object SyncStrategy {
+
+  /*
+   * Creates [[CountSyncStrategy]]
+   */
   def count(c: Long): SyncStrategy = CountSyncStrategy(0, c)
+
+  /*
+   * Creates [[NoSyncStrategy]]
+   */
   def none: SyncStrategy = NoSyncStrategy
 
   private final case class CountSyncStrategy(

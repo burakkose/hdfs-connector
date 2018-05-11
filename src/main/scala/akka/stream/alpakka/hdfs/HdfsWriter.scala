@@ -3,20 +3,23 @@ package akka.stream.alpakka.hdfs
 import akka.util.ByteString
 import org.apache.hadoop.fs.{FSDataOutputStream, FileSystem, Path}
 import org.apache.hadoop.io.SequenceFile.{CompressionType, Writer}
-import org.apache.hadoop.io.compress.{CodecPool, CompressionCodec}
+import org.apache.hadoop.io.compress.{CodecPool, CompressionCodec, CompressionOutputStream}
 import org.apache.hadoop.io.{SequenceFile, Writable}
 
-private[hdfs] sealed trait HDFSWriter[W, I] {
+/**
+ * Internal API
+ */
+private[hdfs] sealed trait HdfsWriter[W, I] {
   protected lazy val output: W = create(fs, currentFile)
   protected val newLineByteArray: Array[Byte] = ByteString(System.getProperty("line.separator")).toArray
 
   def sync(): Unit
   def currentFile: Path
   def write(input: I, currentOffset: Long, addNewLine: Boolean): Long
-  def rotate(rotationCount: Long): HDFSWriter[W, I]
+  def rotate(rotationCount: Long): HdfsWriter[W, I]
   def moveTo(destination: String): Boolean = {
     val baseDestPath = new Path(destination)
-    if(!fs.exists(baseDestPath))
+    if (!fs.exists(baseDestPath))
       fs.mkdirs(baseDestPath)
     val destPath = new Path(destination, currentFile.getName)
     fs.rename(currentFile, destPath)
@@ -29,14 +32,13 @@ private[hdfs] sealed trait HDFSWriter[W, I] {
     outputFileGenerator(c, System.currentTimeMillis / 1000)
 }
 
-private[hdfs] object HDFSWriter {
-
+private[hdfs] object HdfsWriter {
   final case class DataWriter private (
       fs: FileSystem,
       outputFileGenerator: (Long, Long) => Path,
       maybeFile: Option[Path],
       overwrite: Boolean
-  ) extends HDFSWriter[FSDataOutputStream, ByteString] {
+  ) extends HdfsWriter[FSDataOutputStream, ByteString] {
     val currentFile: Path = maybeFile.getOrElse(createOutputFile(0))
 
     def rotate(rotationCount: Long): DataWriter = {
@@ -67,12 +69,11 @@ private[hdfs] object HDFSWriter {
 
   final case class CompressedDataWriter private (
       fs: FileSystem,
-      compressionType: CompressionType,
       compressionCodec: CompressionCodec,
       outputFileGenerator: (Long, Long) => Path,
       maybeFile: Option[Path] = None,
       overwrite: Boolean
-  ) extends HDFSWriter[FSDataOutputStream, ByteString] {
+  ) extends HdfsWriter[FSDataOutputStream, ByteString] {
     private val compressor = CodecPool.getCompressor(compressionCodec, fs.getConf)
     private val cmpOutput = compressionCodec.createOutputStream(output, compressor)
 
@@ -103,12 +104,11 @@ private[hdfs] object HDFSWriter {
   object CompressedDataWriter {
     def apply(
         fs: FileSystem,
-        compressionType: CompressionType,
         compressionCodec: CompressionCodec,
         outputFileGenerator: (Long, Long) => Path,
         overwrite: Boolean
     ): CompressedDataWriter =
-      new CompressedDataWriter(fs, compressionType, compressionCodec, outputFileGenerator, None, overwrite)
+      new CompressedDataWriter(fs, compressionCodec, outputFileGenerator, None, overwrite)
   }
 
   final case class SequenceWriter[K <: Writable, V <: Writable] private (
@@ -116,7 +116,7 @@ private[hdfs] object HDFSWriter {
       writerOptions: Seq[Writer.Option],
       outputFileGenerator: (Long, Long) => Path,
       maybeFile: Option[Path] = None
-  ) extends HDFSWriter[SequenceFile.Writer, (K, V)] {
+  ) extends HdfsWriter[SequenceFile.Writer, (K, V)] {
     val currentFile: Path = maybeFile.getOrElse(createOutputFile(0))
 
     def rotate(rotationCount: Long): SequenceWriter[K, V] = {
