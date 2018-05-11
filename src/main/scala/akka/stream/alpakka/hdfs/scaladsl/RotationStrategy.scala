@@ -15,9 +15,9 @@ sealed trait RotationStrategy extends Strategy {
 }
 object RotationStrategy {
   def sized(count: Double, unit: FileUnit): RotationStrategy = SizeRotationStrategy(0, 0, count * unit.byteCount)
-  def buffered(size: Long): RotationStrategy = BufferRotationStrategy(0, size)
+  def counted(size: Long): RotationStrategy = CountedRotationStrategy(0, size)
   def timed(interval: FiniteDuration): RotationStrategy = TimedRotationStrategy(interval)
-  def no: RotationStrategy = NoRotationStrategy
+  def none: RotationStrategy = NoRotationStrategy
 
   private final case class SizeRotationStrategy(
       bytesWritten: Long,
@@ -32,7 +32,7 @@ object RotationStrategy {
     }
   }
 
-  private final case class BufferRotationStrategy(
+  private final case class CountedRotationStrategy(
       messageWritten: Long,
       size: Long
   ) extends RotationStrategy {

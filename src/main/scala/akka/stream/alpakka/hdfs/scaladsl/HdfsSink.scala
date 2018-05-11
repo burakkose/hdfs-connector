@@ -15,19 +15,16 @@ class HdfsSink {
 
   def data(
       fs: FileSystem,
-      dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: (Long, Long) => Path,
       settings: HdfsWritingSettings
   ): Sink[ByteString, Future[Done]] =
     HdfsFlow
-      .data(fs, dest, syncStrategy, rotationStrategy, outputFileGenerator, settings)
+      .data(fs, syncStrategy, rotationStrategy, settings)
       .toMat(Sink.ignore)(Keep.right)
 
   def compressed(
       fs: FileSystem,
-      dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
       outputFileGenerator: (Long, Long) => Path,
@@ -37,10 +34,8 @@ class HdfsSink {
   ): Sink[ByteString, Future[Done]] =
     HdfsFlow
       .compressed(fs,
-                  dest,
                   syncStrategy,
                   rotationStrategy,
-                  outputFileGenerator,
                   compressionType,
                   compressionCodec,
                   settings)
@@ -48,7 +43,6 @@ class HdfsSink {
 
   def sequence[K <: Writable, V <: Writable](
       fs: FileSystem,
-      dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
       outputFileGenerator: (Long, Long) => Path,
@@ -61,10 +55,8 @@ class HdfsSink {
     HdfsFlow
       .sequence[K, V](
         fs,
-        dest,
         syncStrategy,
         rotationStrategy,
-        outputFileGenerator,
         compressionType,
         compressionCodec,
         settings,

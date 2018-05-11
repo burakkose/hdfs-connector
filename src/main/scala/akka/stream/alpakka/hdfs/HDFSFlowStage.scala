@@ -2,7 +2,7 @@ package akka.stream.alpakka.hdfs
 
 import akka.NotUsed
 import akka.event.Logging
-import akka.stream.alpakka.hdfs.HDFSFlowLogic.{FlowState, FlowStep}
+import akka.stream.alpakka.hdfs.HDFSFlowLogic.{FlowState, FlowStep, LogicState}
 import akka.stream.alpakka.hdfs.scaladsl.RotationStrategy.TimedRotationStrategy
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy}
 import akka.stream.stage._
@@ -17,7 +17,6 @@ final case class WriteLog(path: String, rotation: Int)
  * Internal API
  */
 private[hdfs] final class HDFSFlowStage[W, I](
-    dest: String,
     ss: SyncStrategy,
     rs: RotationStrategy,
     settings: HdfsWritingSettings,
@@ -29,14 +28,13 @@ private[hdfs] final class HDFSFlowStage[W, I](
   override val shape: FlowShape[I, Future[WriteLog]] = FlowShape(in, out)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-    new HDFSFlowLogic(dest, ss, rs, settings, hdfsWriter, in, out, shape)
+    new HDFSFlowLogic(ss, rs, settings, hdfsWriter, in, out, shape)
 }
 
 /**
  * Internal API
  */
 private final class HDFSFlowLogic[W, I](
-    dest: String,
     initialSyncStrategy: SyncStrategy,
     initialRotationStrategy: RotationStrategy,
     settings: HdfsWritingSettings,
@@ -71,13 +69,22 @@ private final class HDFSFlowLogic[W, I](
   }
 
   override def onTimer(timerKey: Any): Unit =
-    state = rotateOutput(state)
+    state = tryRotateOutput(true)
+      .runS(state)
+      .value
 
   override def onUpstreamFailure(ex: Throwable): Unit =
     failStage(ex)
 
   override def onUpstreamFinish(): Unit =
-    completeStage()
+    state.logicState match {
+      case LogicState.Writing =>
+        tryRotateOutput(true)
+          .run(state)
+          .map(_ => completeStage())
+          .value
+      case _ => completeStage()
+    }
 
   private def tryPull(): Unit =
     if (!isClosed(inlet) && !hasBeenPulled(inlet)) {
@@ -85,26 +92,36 @@ private final class HDFSFlowLogic[W, I](
     }
 
   private def rotateOutput(state: FlowState[W, I]): FlowState[W, I] = {
-    state.writer.moveTo(dest)
-
     val newRotationCount = state.rotationCount + 1
     val newRotation = state.rotationStrategy.reset()
     val newWriter = state.writer.rotate(newRotationCount)
 
-    val message = WriteLog(newWriter.currentFile.getName, newRotationCount)
+    state.writer.moveTo(settings.destination)
+
+    val message = WriteLog(state.writer.currentFile.getName, state.rotationCount)
     push(outlet, Future.successful(message))
 
-    state.copy(offset = 0, rotationCount = newRotationCount, writer = newWriter, rotationStrategy = newRotation)
+    state.copy(offset = 0,
+               rotationCount = newRotationCount,
+               writer = newWriter,
+               rotationStrategy = newRotation,
+               logicState = LogicState.Idle)
   }
 
   private def onPushProgram(input: I) =
     for {
+      _ <- setLogicState(LogicState.Writing)
       offset <- write(input)
       _ <- processSync(offset)
       _ <- processRotation(offset)
       _ <- trySyncOutput
-      _ <- tryRotateOutput
+      _ <- tryRotateOutput(false)
     } yield tryPull()
+
+  private def setLogicState(logicState: LogicState): FlowStep[W, I, LogicState] =
+    FlowStep[W, I, LogicState] { state =>
+      (state.copy(logicState = logicState), logicState)
+    }
 
   private def write(input: I): FlowStep[W, I, Long] =
     FlowStep[W, I, Long] { state =>
@@ -124,9 +141,9 @@ private final class HDFSFlowLogic[W, I](
       (state.copy(syncStrategy = newSync), newSync)
     }
 
-  private def tryRotateOutput: FlowStep[W, I, Boolean] =
+  private def tryRotateOutput(force: Boolean): FlowStep[W, I, Boolean] =
     FlowStep[W, I, Boolean] { state =>
-      if (state.rotationStrategy.should()) {
+      if (state.rotationStrategy.should() || force) {
         (rotateOutput(state), true)
       } else {
         (state, false)
@@ -157,7 +174,6 @@ private[hdfs] object HDFSFlowLogic {
   object LogicState {
     case object Idle extends LogicState
     case object Writing extends LogicState
-    case object Finished extends LogicState
   }
 
   final case class FlowState[W, I](

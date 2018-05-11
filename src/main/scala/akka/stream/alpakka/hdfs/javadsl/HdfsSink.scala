@@ -17,32 +17,26 @@ object HdfsSink {
 
   def data(
       fs: FileSystem,
-      dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: BiFunction[Long, Long, Path],
       settings: HdfsWritingSettings
   ): javadsl.Sink[ByteString, CompletionStage[Done]] =
     HdfsFlow
-      .data(fs, dest, syncStrategy, rotationStrategy, outputFileGenerator, settings)
+      .data(fs, syncStrategy, rotationStrategy, settings)
       .toMat(javadsl.Sink.ignore, javadsl.Keep.right[NotUsed, CompletionStage[Done]])
 
   def compressed(
       fs: FileSystem,
-      dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: BiFunction[Long, Long, Path],
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
       settings: HdfsWritingSettings
   ): javadsl.Sink[ByteString, CompletionStage[Done]] =
     HdfsFlow
       .compressed(fs,
-                  dest,
                   syncStrategy,
                   rotationStrategy,
-                  outputFileGenerator,
                   compressionType,
                   compressionCodec,
                   settings)
@@ -50,10 +44,8 @@ object HdfsSink {
 
   def sequence[K <: Writable, V <: Writable](
       fs: FileSystem,
-      dest: String,
       syncStrategy: SyncStrategy,
       rotationStrategy: RotationStrategy,
-      outputFileGenerator: BiFunction[Long, Long, Path],
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
       settings: HdfsWritingSettings,
@@ -63,10 +55,8 @@ object HdfsSink {
     HdfsFlow
       .sequence(
         fs,
-        dest,
         syncStrategy,
         rotationStrategy,
-        (rc, t) => outputFileGenerator.apply(rc, t),
         compressionType,
         compressionCodec,
         settings,

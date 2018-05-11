@@ -5,7 +5,7 @@ sealed trait SyncStrategy extends Strategy {
 }
 object SyncStrategy {
   def count(c: Long): SyncStrategy = CountSyncStrategy(0, c)
-  def no: SyncStrategy = NoSyncStrategy
+  def none: SyncStrategy = NoSyncStrategy
 
   private final case class CountSyncStrategy(
       executeCount: Long = 0,

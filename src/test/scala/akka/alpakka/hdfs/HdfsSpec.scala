@@ -22,7 +22,7 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
 
   private var hdfsCluster: MiniDFSCluster = _
 
-  private def books =
+  private def books: Iterator[ByteString] =
     List(
       "Akka Concurrency",
       "Akka in Action",
@@ -30,6 +30,9 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
       "Learning Scala",
       "Programming in Scala",
     ).map(ByteString(_)).iterator
+
+  private def fakeData: Iterator[ByteString] =
+    ByteBuffer.allocate(1024).array().toIterator.map(ByteString(_)) // 1024 byte string (1kb)
 
   //#init-mat
   implicit val system = ActorSystem()
@@ -45,15 +48,16 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
   var fs: FileSystem = FileSystem.get(conf)
   //#init-client
 
-  "Hdfs Data Writer" should {
-    "use file size rotation and create five files" in {
+  val settings = HdfsWritingSettings()
+
+  "DataWriter" should {
+
+    "use file size rotation and produce five files" in {
       val f1 = HdfsFlow.data(
         fs,
-        "myfiles",
         SyncStrategy.count(1),
         RotationStrategy.sized(0.01, FileUnit.KB),
-        (rc, t) => new Path(s"/test/$rc.file"),
-        HdfsWritingSettings()
+        settings
       )
 
       val resF1 = Source
@@ -63,24 +67,20 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
 
       val res1 = Await.result(resF1, Duration.Inf)
       res1 shouldBe Seq(
-        WriteLog("1.file", 1),
-        WriteLog("2.file", 2),
-        WriteLog("3.file", 3),
-        WriteLog("4.file", 4),
-        WriteLog("5.file", 5)
+        WriteLog("0", 0),
+        WriteLog("1", 1),
+        WriteLog("2", 2),
+        WriteLog("3", 3),
+        WriteLog("4", 4)
       )
-      getNonZeroLengthFiles("myfiles").size shouldEqual 5
+      getNonZeroLengthFiles(settings.destination).size shouldEqual 5
     }
 
-    "use file size rotation and create exactly two files" in {
-      val fakeData = ByteBuffer.allocate(1024).array().toIterator.map(ByteString(_)) // 1024 byte string (1kb)
-
+    "use file size rotation and produce exactly two files" in {
       val flow = HdfsFlow.data(
         fs,
-        "myfiles",
         SyncStrategy.count(500),
         RotationStrategy.sized(0.5, FileUnit.KB),
-        (rc, _) => new Path(s"/test/$rc.file"),
         HdfsWritingSettings()
       )
 
@@ -91,21 +91,17 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
 
       val res = Await.result(resF, Duration.Inf)
       res.size shouldEqual 2 // it should create 2 files
-      val files = getNonZeroLengthFiles("myfiles")
+      val files = getNonZeroLengthFiles(settings.destination)
       files.size shouldEqual 2
       files.foldLeft(0L) { case (acc, file) => acc + file.getLen } shouldEqual 1024
       files.foreach(f => f.getLen should be <= 512L)
     }
 
     "detect upstream finish and move data to hdfs" in {
-      val fakeData = ByteBuffer.allocate(1024).array().toIterator.map(ByteString(_)) // 1024 byte string (1kb)
-
       val flow = HdfsFlow.data(
         fs,
-        "myfiles",
         SyncStrategy.count(500),
         RotationStrategy.sized(1, FileUnit.GB), // Use huge rotation
-        (rc, _) => new Path(s"/test/$rc.file"),
         HdfsWritingSettings()
       )
 
@@ -116,18 +112,16 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
 
       val res = Await.result(resF, Duration.Inf)
       res.size shouldEqual 1
-      val files = getNonZeroLengthFiles("myfiles")
+      val files = getNonZeroLengthFiles(settings.destination)
       files.size shouldEqual 1
       files.head.getLen shouldEqual 1024
     }
 
-    "use buffer rotation and create 3 files" in {
+    "use buffer rotation and produce 3 files" in {
       val flow = HdfsFlow.data(
         fs,
-        "myfiles",
         SyncStrategy.count(1),
-        RotationStrategy.buffered(2),
-        (rc, _) => new Path(s"/test/$rc.file"),
+        RotationStrategy.counted(2),
         HdfsWritingSettings()
       )
 
@@ -138,7 +132,7 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
 
       val res = Await.result(resF, Duration.Inf)
       res.size shouldEqual 3
-      val files = getNonZeroLengthFiles("myfiles")
+      val files = getNonZeroLengthFiles(settings.destination)
       files.size shouldEqual 3
     }
 
@@ -146,27 +140,71 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
       val probe = TestProbe()
 
       val cancellable = Source
-        .tick(0.microsecond, 50.milliseconds, ByteString("I love Alpakka!"))
+        .tick(0.millis, 50.milliseconds, ByteString("I love Alpakka!"))
         .via(
           HdfsFlow.data(
             fs,
-            "myfiles",
-            SyncStrategy.count(1),
+            SyncStrategy.count(100),
             RotationStrategy.timed(500.milliseconds),
-            (rc, _) => new Path(s"/test/$rc.file"),
             HdfsWritingSettings()
           )
         )
         .to(Sink.actorRef(probe.ref, "completed"))
         .run()
 
-      probe.expectMsg(500.milliseconds, WriteLog("1.file", 1))
-      probe.expectMsg(1000.milliseconds, WriteLog("2.file", 2))
-      probe.expectMsg(1500.milliseconds, WriteLog("3.file", 3))
+      probe.expectMsg(500.milliseconds, WriteLog("0", 0))
+      probe.expectMsg(1000.milliseconds, WriteLog("1", 1))
+      probe.expectMsg(1500.milliseconds, WriteLog("2", 2))
       cancellable.cancel()
-      val files = getNonZeroLengthFiles("myfiles")
+      probe.expectMsg(2000.milliseconds, WriteLog("3", 3))
+      val files = getNonZeroLengthFiles(settings.destination)
       files.size shouldEqual 3
     }
+
+    "should use no rotation and produce one file" in {
+      val flow = HdfsFlow.data(
+        fs,
+        SyncStrategy.none,
+        RotationStrategy.none,
+        HdfsWritingSettings()
+      )
+
+      val resF = Source
+        .fromIterator(() => books)
+        .via(flow)
+        .runWith(Sink.seq)
+
+      val res = Await.result(resF, Duration.Inf)
+      res.size shouldEqual 1
+      val files = getNonZeroLengthFiles(settings.destination)
+      files.size shouldEqual 1
+      files.head.getLen shouldEqual books.map(_.toArray.length).sum
+    }
+
+
+/*    "use timed rotation ang ignore empty files" in {
+      val probe = TestProbe()
+
+      val cancellable = Source
+        .tick(0.millis, 1000.millis, ByteString("I love Alpakka!"))
+        .via(
+          HdfsFlow.data(
+            fs,
+            SyncStrategy.count(100),
+            RotationStrategy.timed(100.millis),
+            HdfsWritingSettings()
+          )
+        )
+        .to(Sink.actorRef(probe.ref, "completed"))
+        .run()
+
+      probe.expectMsg(100.millis, WriteLog("0", 0))
+      probe.expectNoMessage(500.millis)
+      cancellable.cancel()
+      val files = getNonZeroLengthFiles(settings.destination)
+      println(files.toList)
+      files.size shouldEqual 1
+    }*/
   }
 
   private def setupCluster(): Unit = {
@@ -186,8 +224,8 @@ class HdfsSpec extends WordSpecLike with Matchers with BeforeAndAfterAll with Be
 
 
   override protected def afterEach(): Unit = {
-    fs.delete(new Path("myfiles"), true)
-    fs.delete(new Path("test"), true)
+    fs.delete(new Path(settings.destination), true)
+    fs.delete(settings.outputFileGenerator(0, 0).getParent, true)
     ()
   }
 
