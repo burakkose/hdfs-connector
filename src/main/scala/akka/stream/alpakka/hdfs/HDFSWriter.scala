@@ -8,10 +8,11 @@ import org.apache.hadoop.io.{SequenceFile, Writable}
 
 private[hdfs] sealed trait HDFSWriter[W, I] {
   protected lazy val output: W = create(fs, currentFile)
+  protected val newLineByteArray: Array[Byte] = ByteString(System.getProperty("line.separator")).toArray
 
   def sync(): Unit
   def currentFile: Path
-  def write(input: I, currentOffset: Long): Long
+  def write(input: I, currentOffset: Long, addNewLine: Boolean): Long
   def rotate(rotationCount: Long): HDFSWriter[W, I]
   def moveTo(destination: String): Boolean = {
     val baseDestPath = new Path(destination)
@@ -33,7 +34,8 @@ private[hdfs] object HDFSWriter {
   final case class DataWriter private (
       fs: FileSystem,
       outputFileGenerator: (Long, Long) => Path,
-      maybeFile: Option[Path] = None,
+      maybeFile: Option[Path],
+      overwrite: Boolean
   ) extends HDFSWriter[FSDataOutputStream, ByteString] {
     val currentFile: Path = maybeFile.getOrElse(createOutputFile(0))
 
@@ -42,23 +44,25 @@ private[hdfs] object HDFSWriter {
       copy(maybeFile = Some(createOutputFile(rotationCount)))
     }
 
-    def write(input: ByteString, currentOffset: Long): Long = {
+    def write(input: ByteString, currentOffset: Long, addNewLine: Boolean): Long = {
       val bytes = input.toArray
-      val newOffset = currentOffset + bytes.length
       output.write(bytes)
+      val extraOffset = if (addNewLine) {
+        output.write(newLineByteArray)
+        newLineByteArray.length
+      } else 0
+      val newOffset = currentOffset + bytes.length + extraOffset
       newOffset
     }
 
     def sync(): Unit = output.hsync()
 
-    protected def create(fs: FileSystem, file: Path): FSDataOutputStream = {
-      fs.create(file)
-    }
+    protected def create(fs: FileSystem, file: Path): FSDataOutputStream = fs.create(file, overwrite)
   }
 
   object DataWriter {
-    def apply(fs: FileSystem, outputFileGenerator: (Long, Long) => Path): DataWriter =
-      new DataWriter(fs, outputFileGenerator)
+    def apply(fs: FileSystem, outputFileGenerator: (Long, Long) => Path, overwrite: Boolean): DataWriter =
+      new DataWriter(fs, outputFileGenerator, None, overwrite)
   }
 
   final case class CompressedDataWriter private (
@@ -67,6 +71,7 @@ private[hdfs] object HDFSWriter {
       compressionCodec: CompressionCodec,
       outputFileGenerator: (Long, Long) => Path,
       maybeFile: Option[Path] = None,
+      overwrite: Boolean
   ) extends HDFSWriter[FSDataOutputStream, ByteString] {
     private val compressor = CodecPool.getCompressor(compressionCodec, fs.getConf)
     private val cmpOutput = compressionCodec.createOutputStream(output, compressor)
@@ -79,17 +84,20 @@ private[hdfs] object HDFSWriter {
       copy(maybeFile = Some(createOutputFile(rotationCount)))
     }
 
-    def write(input: ByteString, currentOffset: Long): Long = {
+    def write(input: ByteString, currentOffset: Long, addNewLine: Boolean): Long = {
       val bytes = input.toArray
-      val newOffset = currentOffset + bytes.length
       cmpOutput.write(bytes)
+      val extraOffset = if (addNewLine) {
+        cmpOutput.write(newLineByteArray)
+        newLineByteArray.length
+      } else 0
+      val newOffset = currentOffset + bytes.length + extraOffset
       newOffset
     }
 
     def sync(): Unit = output.hsync()
 
-    protected def create(fs: FileSystem, file: Path): FSDataOutputStream =
-      fs.create(file)
+    protected def create(fs: FileSystem, file: Path): FSDataOutputStream = fs.create(file, overwrite)
   }
 
   object CompressedDataWriter {
@@ -98,15 +106,16 @@ private[hdfs] object HDFSWriter {
         compressionType: CompressionType,
         compressionCodec: CompressionCodec,
         outputFileGenerator: (Long, Long) => Path,
+        overwrite: Boolean
     ): CompressedDataWriter =
-      new CompressedDataWriter(fs, compressionType, compressionCodec, outputFileGenerator)
+      new CompressedDataWriter(fs, compressionType, compressionCodec, outputFileGenerator, None, overwrite)
   }
 
   final case class SequenceWriter[K <: Writable, V <: Writable] private (
       fs: FileSystem,
       writerOptions: Seq[Writer.Option],
       outputFileGenerator: (Long, Long) => Path,
-      maybeFile: Option[Path] = None,
+      maybeFile: Option[Path] = None
   ) extends HDFSWriter[SequenceFile.Writer, (K, V)] {
     val currentFile: Path = maybeFile.getOrElse(createOutputFile(0))
 
@@ -115,7 +124,7 @@ private[hdfs] object HDFSWriter {
       copy(maybeFile = Some(createOutputFile(rotationCount)))
     }
 
-    def write(input: (K, V), currentOffset: Long): Long = {
+    def write(input: (K, V), currentOffset: Long, addNewLine: Boolean): Long = {
       output.append(input._1, input._2)
       output.getLength
     }

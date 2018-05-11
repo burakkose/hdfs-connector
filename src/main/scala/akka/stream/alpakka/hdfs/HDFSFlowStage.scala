@@ -108,7 +108,7 @@ private final class HDFSFlowLogic[W, I](
 
   private def write(input: I): FlowStep[W, I, Long] =
     FlowStep[W, I, Long] { state =>
-      val newOffset = state.writer.write(input, state.offset)
+      val newOffset = state.writer.write(input, state.offset, settings.newLine)
       (state.copy(offset = newOffset), newOffset)
     }
 

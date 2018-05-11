@@ -26,7 +26,7 @@ object HdfsFlow {
           syncStrategy,
           rotationStrategy,
           settings,
-          HDFSWriter.DataWriter(fs, outputFileGenerator)
+          HDFSWriter.DataWriter(fs, outputFileGenerator, settings.overwrite)
         )
       )
       .mapAsync(1)(identity)
@@ -48,7 +48,8 @@ object HdfsFlow {
           syncStrategy,
           rotationStrategy,
           settings,
-          HDFSWriter.CompressedDataWriter(fs, compressionType, compressionCodec, outputFileGenerator)
+          HDFSWriter
+            .CompressedDataWriter(fs, compressionType, compressionCodec, outputFileGenerator, settings.overwrite)
         )
       )
       .mapAsync(1)(identity)
