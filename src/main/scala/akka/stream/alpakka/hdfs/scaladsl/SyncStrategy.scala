@@ -21,13 +21,13 @@ object SyncStrategy {
   ) extends SyncStrategy {
     def should(): Boolean = executeCount >= count
     def reset(): SyncStrategy = copy(executeCount = 0)
-    def run(offset: Long): SyncStrategy = copy(executeCount = executeCount + 1)
+    def update(offset: Long): SyncStrategy = copy(executeCount = executeCount + 1)
   }
 
   private case object NoSyncStrategy extends SyncStrategy {
     def should(): Boolean = false
     def reset(): SyncStrategy = this
-    def run(offset: Long): SyncStrategy = this
+    def update(offset: Long): SyncStrategy = this
   }
 
 }

@@ -5,6 +5,7 @@ import akka.event.Logging
 import akka.stream.alpakka.hdfs.HdfsFlowLogic.{FlowState, FlowStep, LogicState}
 import akka.stream.alpakka.hdfs.scaladsl.RotationStrategy.TimedRotationStrategy
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy}
+import akka.stream.alpakka.hdfs.writer.HdfsWriter
 import akka.stream.stage._
 import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
 import cats.data.State
@@ -91,29 +92,12 @@ private final class HdfsFlowLogic[W, I](
       pull(inlet)
     }
 
-  private def rotateOutput(state: FlowState[W, I]): FlowState[W, I] = {
-    val newRotationCount = state.rotationCount + 1
-    val newRotation = state.rotationStrategy.reset()
-    val newWriter = state.writer.rotate(newRotationCount)
-
-    state.writer.moveTo(settings.destination)
-
-    val message = WriteLog(state.writer.currentFile.getName, state.rotationCount)
-    push(outlet, Future.successful(message))
-
-    state.copy(offset = 0,
-               rotationCount = newRotationCount,
-               writer = newWriter,
-               rotationStrategy = newRotation,
-               logicState = LogicState.Idle)
-  }
-
   private def onPushProgram(input: I) =
     for {
       _ <- setLogicState(LogicState.Writing)
       offset <- write(input)
-      _ <- processSync(offset)
-      _ <- processRotation(offset)
+      _ <- updateSync(offset)
+      _ <- updateRotation(offset)
       _ <- trySyncOutput
       _ <- tryRotateOutput(false)
     } yield tryPull()
@@ -125,19 +109,19 @@ private final class HdfsFlowLogic[W, I](
 
   private def write(input: I): FlowStep[W, I, Long] =
     FlowStep[W, I, Long] { state =>
-      val newOffset = state.writer.write(input, state.offset, settings.newLine)
-      (state.copy(offset = newOffset), newOffset)
+      val newOffset = state.writer.write(input, settings.newLine)
+      (state, newOffset)
     }
 
-  private def processRotation(offset: Long): FlowStep[W, I, RotationStrategy] =
+  private def updateRotation(offset: Long): FlowStep[W, I, RotationStrategy] =
     FlowStep[W, I, RotationStrategy] { state =>
-      val newRotation = state.rotationStrategy.run(offset)
+      val newRotation = state.rotationStrategy.update(offset)
       (state.copy(rotationStrategy = newRotation), newRotation)
     }
 
-  private def processSync(offset: Long): FlowStep[W, I, SyncStrategy] =
+  private def updateSync(offset: Long): FlowStep[W, I, SyncStrategy] =
     FlowStep[W, I, SyncStrategy] { state =>
-      val newSync = state.syncStrategy.run(offset)
+      val newSync = state.syncStrategy.update(offset)
       (state.copy(syncStrategy = newSync), newSync)
     }
 
@@ -161,6 +145,21 @@ private final class HdfsFlowLogic[W, I](
       }
     }
 
+  private def rotateOutput(state: FlowState[W, I]): FlowState[W, I] = {
+    val newRotationCount = state.rotationCount + 1
+    val newRotation = state.rotationStrategy.reset()
+    val newWriter = state.writer.rotate(newRotationCount)
+
+    state.writer.moveToTarget()
+
+    val message = WriteLog(state.writer.targetFileName, state.rotationCount)
+    push(outlet, Future.successful(message))
+
+    state.copy(rotationCount = newRotationCount,
+               writer = newWriter,
+               rotationStrategy = newRotation,
+               logicState = LogicState.Idle)
+  }
 }
 
 private[hdfs] object HdfsFlowLogic {
@@ -177,7 +176,6 @@ private[hdfs] object HdfsFlowLogic {
   }
 
   final case class FlowState[W, I](
-      offset: Long,
       rotationCount: Int,
       writer: HdfsWriter[W, I],
       rotationStrategy: RotationStrategy,
@@ -190,6 +188,6 @@ private[hdfs] object HdfsFlowLogic {
         writer: HdfsWriter[W, I],
         rs: RotationStrategy,
         ss: SyncStrategy
-    ): FlowState[W, I] = new FlowState[W, I](0, 0, writer, rs, ss, LogicState.Idle)
+    ): FlowState[W, I] = new FlowState[W, I](0, writer, rs, ss, LogicState.Idle)
   }
 }

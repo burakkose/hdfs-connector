@@ -18,7 +18,7 @@ object RotationStrategy {
   /*
    * Creates [[SizeRotationStrategy]]
    */
-  def sized(count: Double, unit: FileUnit): RotationStrategy = SizeRotationStrategy(0, 0, count * unit.byteCount)
+  def sized(count: Double, unit: FileUnit): RotationStrategy = SizeRotationStrategy(0, count * unit.byteCount)
 
   /*
    * Creates [[CountedRotationStrategy]]
@@ -37,15 +37,11 @@ object RotationStrategy {
 
   private final case class SizeRotationStrategy(
       bytesWritten: Long,
-      lastOffset: Long,
       maxBytes: Double
   ) extends RotationStrategy {
     def should(): Boolean = bytesWritten >= maxBytes
-    def reset(): RotationStrategy = copy(bytesWritten = 0, lastOffset = 0)
-    def run(offset: Long): RotationStrategy = {
-      val diff = offset - lastOffset
-      copy(bytesWritten = bytesWritten + diff, lastOffset = offset)
-    }
+    def reset(): RotationStrategy = copy(bytesWritten = 0)
+    def update(offset: Long): RotationStrategy = copy(bytesWritten = offset)
   }
 
   private final case class CountedRotationStrategy(
@@ -54,19 +50,19 @@ object RotationStrategy {
   ) extends RotationStrategy {
     def should(): Boolean = messageWritten >= size
     def reset(): RotationStrategy = copy(messageWritten = 0)
-    def run(offset: Long): RotationStrategy = copy(messageWritten = messageWritten + 1)
+    def update(offset: Long): RotationStrategy = copy(messageWritten = messageWritten + 1)
   }
 
   private[hdfs] final case class TimedRotationStrategy(interval: FiniteDuration) extends RotationStrategy {
     def should(): Boolean = false
     def reset(): RotationStrategy = this
-    def run(offset: Long): RotationStrategy = this
+    def update(offset: Long): RotationStrategy = this
   }
 
   private case object NoRotationStrategy extends RotationStrategy {
     def should(): Boolean = false
     def reset(): RotationStrategy = this
-    def run(offset: Long): RotationStrategy = this
+    def update(offset: Long): RotationStrategy = this
   }
 
 }

@@ -20,8 +20,8 @@ libraryDependencies ++= {
     "org.scalatest" %% "scalatest" % scalaTestVersion % Test,
     "com.typesafe.akka" %% "akka-testkit" % akkaVersion % Test,
     "com.novocode" % "junit-interface" % junitInterfaceVersion % Test,
-    "org.apache.hadoop" % "hadoop-hdfs" % hadoopVersion % Test classifier "tests" ,
-    "org.apache.hadoop" % "hadoop-common" % hadoopVersion % Test classifier "tests" ,
+    "org.apache.hadoop" % "hadoop-hdfs" % hadoopVersion % Test classifier "tests",
+    "org.apache.hadoop" % "hadoop-common" % hadoopVersion % Test classifier "tests",
     "org.apache.hadoop" % "hadoop-minicluster" % hadoopVersion % Test
   )
 }

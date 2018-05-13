@@ -1,7 +1,8 @@
 package akka.stream.alpakka.hdfs.scaladsl
 
 import akka.NotUsed
-import akka.stream.alpakka.hdfs.{HdfsFlowStage, HdfsWriter, HdfsWritingSettings, WriteLog}
+import akka.stream.alpakka.hdfs.writer.{CompressedDataWriter, DataWriter, SequenceWriter}
+import akka.stream.alpakka.hdfs.{HdfsFlowStage, HdfsWritingSettings, WriteLog}
 import akka.stream.scaladsl.Flow
 import akka.util.ByteString
 import org.apache.hadoop.fs.FileSystem
@@ -31,7 +32,7 @@ object HdfsFlow {
           syncStrategy,
           rotationStrategy,
           settings,
-          HdfsWriter.DataWriter(fs, settings.outputFileGenerator, settings.overwrite)
+          DataWriter(fs, settings.pathGenerator, settings.overwrite)
         )
       )
       .mapAsync(1)(identity)
@@ -58,10 +59,10 @@ object HdfsFlow {
           syncStrategy,
           rotationStrategy,
           settings,
-          HdfsWriter.CompressedDataWriter(
+          CompressedDataWriter(
             fs,
             compressionCodec,
-            settings.outputFileGenerator,
+            settings.pathGenerator,
             settings.overwrite
           )
         )
@@ -96,7 +97,7 @@ object HdfsFlow {
           syncStrategy,
           rotationStrategy,
           settings,
-          HdfsWriter.SequenceWriter(fs, compressionType, compressionCodec, classK, classV, settings.outputFileGenerator)
+          SequenceWriter(fs, compressionType, compressionCodec, classK, classV, settings.pathGenerator)
         )
       )
       .mapAsync(1)(identity)
