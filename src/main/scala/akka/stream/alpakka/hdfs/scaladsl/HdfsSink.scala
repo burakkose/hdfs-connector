@@ -52,7 +52,36 @@ class HdfsSink {
       .toMat(Sink.ignore)(Keep.right)
 
   /*
-   * Scala API: creates a Sink with [[HdfsFlowStage]] for [[SequenceFile.Writer]]
+   * Scala API: creates a Sink with [[HdfsFlowStage]] for [[SequenceFile.Writer]] without a compression
+   *
+   * @param fs Hdfs FileSystem
+   * @param syncStrategy sync strategy
+   * @param rotationStrategy rotation strategy
+   * @param settings Hdfs writing settings
+   * @param classK a key class
+   * @param classV a value class
+   */
+  def sequence[K <: Writable, V <: Writable](
+      fs: FileSystem,
+      syncStrategy: SyncStrategy,
+      rotationStrategy: RotationStrategy,
+      settings: HdfsWritingSettings,
+      classK: Class[K],
+      classV: Class[V]
+  ): Sink[(K, V), Future[Done]] =
+    HdfsFlow
+      .sequence[K, V](
+        fs,
+        syncStrategy,
+        rotationStrategy,
+        settings,
+        classK,
+        classV
+      )
+      .toMat(Sink.ignore)(Keep.right)
+
+  /*
+   * Scala API: creates a Sink with [[HdfsFlowStage]] for [[SequenceFile.Writer]] with a compression
    *
    * @param fs Hdfs FileSystem
    * @param syncStrategy sync strategy
@@ -85,4 +114,5 @@ class HdfsSink {
         classV
       )
       .toMat(Sink.ignore)(Keep.right)
+
 }

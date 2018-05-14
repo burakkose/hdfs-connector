@@ -24,7 +24,7 @@ private[writer] final case class SequenceWriter[K <: Writable, V <: Writable](
 
   def rotate(rotationCount: Long): SequenceWriter[K, V] = {
     output.close()
-    copy(maybeTargetPath = Some(createTargetPath(pathGenerator, 0)))
+    copy(maybeTargetPath = Some(createTargetPath(pathGenerator, rotationCount)))
   }
 
   protected def create(fs: FileSystem, file: Path): SequenceFile.Writer = {
@@ -36,6 +36,14 @@ private[writer] final case class SequenceWriter[K <: Writable, V <: Writable](
 private[hdfs] object SequenceWriter {
   def apply[K <: Writable, V <: Writable](
       fs: FileSystem,
+      classK: Class[K],
+      classV: Class[V],
+      pathGenerator: FilePathGenerator,
+  ): SequenceWriter[K, V] =
+    new SequenceWriter[K, V](fs, options(classK, classV), pathGenerator, None)
+
+  def apply[K <: Writable, V <: Writable](
+      fs: FileSystem,
       compressionType: CompressionType,
       compressionCodec: CompressionCodec,
       classK: Class[K],
@@ -45,13 +53,17 @@ private[hdfs] object SequenceWriter {
     new SequenceWriter[K, V](fs, options(compressionType, compressionCodec, classK, classV), pathGenerator, None)
 
   private def options[K <: Writable, V <: Writable](
-      compressionType: CompressionType,
-      compressionCodec: CompressionCodec,
       classK: Class[K],
       classV: Class[V]
   ): Seq[Writer.Option] = Seq(
     SequenceFile.Writer.keyClass(classK),
     SequenceFile.Writer.valueClass(classV),
-    SequenceFile.Writer.compression(compressionType, compressionCodec)
   )
+
+  private def options[K <: Writable, V <: Writable](
+      compressionType: CompressionType,
+      compressionCodec: CompressionCodec,
+      classK: Class[K],
+      classV: Class[V]
+  ): Seq[Writer.Option] = SequenceFile.Writer.compression(compressionType, compressionCodec) +: options(classK, classV)
 }

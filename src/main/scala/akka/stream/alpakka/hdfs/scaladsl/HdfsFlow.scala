@@ -70,7 +70,36 @@ object HdfsFlow {
       .mapAsync(1)(identity)
 
   /*
-   * Scala API: creates a Flow with [[HdfsFlowStage]] for [[SequenceFile.Writer]]
+   * Scala API: creates a Flow with [[HdfsFlowStage]] for [[SequenceFile.Writer]] without a compression
+   *
+   * @param fs Hdfs FileSystem
+   * @param syncStrategy sync strategy
+   * @param rotationStrategy rotation strategy
+   * @param settings Hdfs writing settings
+   * @param classK a key class
+   * @param classV a value class
+   */
+  def sequence[K <: Writable, V <: Writable](
+      fs: FileSystem,
+      syncStrategy: SyncStrategy,
+      rotationStrategy: RotationStrategy,
+      settings: HdfsWritingSettings,
+      classK: Class[K],
+      classV: Class[V]
+  ): Flow[(K, V), WriteLog, NotUsed] =
+    Flow
+      .fromGraph(
+        new HdfsFlowStage(
+          syncStrategy,
+          rotationStrategy,
+          settings,
+          SequenceWriter(fs, classK, classV, settings.pathGenerator)
+        )
+      )
+      .mapAsync(1)(identity)
+
+  /*
+   * Scala API: creates a Flow with [[HdfsFlowStage]] for [[SequenceFile.Writer]] with a compression
    *
    * @param fs Hdfs FileSystem
    * @param syncStrategy sync strategy

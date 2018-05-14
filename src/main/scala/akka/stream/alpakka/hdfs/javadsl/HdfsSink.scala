@@ -53,7 +53,36 @@ object HdfsSink {
       .toMat(javadsl.Sink.ignore, javadsl.Keep.right[NotUsed, CompletionStage[Done]])
 
   /*
-   * Java API: creates a Sink with [[HdfsFlowStage]] for [[SequenceFile.Writer]]
+   * Java API: creates a Sink with [[HdfsFlowStage]] for [[SequenceFile.Writer]] without a compression
+   *
+   * @param fs Hdfs FileSystem
+   * @param syncStrategy sync strategy
+   * @param rotationStrategy rotation strategy
+   * @param settings Hdfs writing settings
+   * @param classK a key class
+   * @param classV a value class
+   */
+  def sequence[K <: Writable, V <: Writable](
+      fs: FileSystem,
+      syncStrategy: SyncStrategy,
+      rotationStrategy: RotationStrategy,
+      settings: HdfsWritingSettings,
+      classK: Class[K],
+      classV: Class[V]
+  ): javadsl.Sink[(K, V), CompletionStage[Done]] =
+    HdfsFlow
+      .sequence(
+        fs,
+        syncStrategy,
+        rotationStrategy,
+        settings,
+        classK,
+        classV
+      )
+      .toMat(javadsl.Sink.ignore, javadsl.Keep.right[NotUsed, CompletionStage[Done]])
+
+  /*
+   * Java API: creates a Sink with [[HdfsFlowStage]] for [[SequenceFile.Writer]] with a compression
    *
    * @param fs Hdfs FileSystem
    * @param syncStrategy sync strategy
