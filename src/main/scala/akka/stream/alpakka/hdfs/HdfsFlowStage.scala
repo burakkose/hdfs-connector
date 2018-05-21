@@ -3,7 +3,7 @@ package akka.stream.alpakka.hdfs
 import akka.NotUsed
 import akka.event.Logging
 import akka.stream.alpakka.hdfs.HdfsFlowLogic.{FlowState, FlowStep, LogicState}
-import akka.stream.alpakka.hdfs.scaladsl.RotationStrategy.TimedRotationStrategy
+import akka.stream.alpakka.hdfs.scaladsl.RotationStrategy.TimeRotationStrategy
 import akka.stream.alpakka.hdfs.scaladsl.{RotationStrategy, SyncStrategy}
 import akka.stream.alpakka.hdfs.writer.HdfsWriter
 import akka.stream.stage._
@@ -62,8 +62,8 @@ private final class HdfsFlowLogic[W, I](
   override def preStart(): Unit = {
     // Schedule timer to rotate output file
     initialRotationStrategy match {
-      case timed: TimedRotationStrategy =>
-        schedulePeriodicallyWithInitialDelay(NotUsed, settings.initialDelay, timed.interval)
+      case timed: TimeRotationStrategy =>
+        schedulePeriodicallyWithInitialDelay(NotUsed, timed.interval, timed.interval)
       case _ => ()
     }
     tryPull()

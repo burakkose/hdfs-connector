@@ -3,6 +3,7 @@ package akka.stream.alpakka.hdfs.scaladsl
 sealed trait SyncStrategy extends Strategy {
   type S = SyncStrategy
 }
+
 object SyncStrategy {
 
   /*

@@ -7,18 +7,16 @@ import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
 import akka.stream.alpakka.hdfs.scaladsl.{FileUnit, HdfsFlow, RotationStrategy, SyncStrategy}
 import akka.stream.alpakka.hdfs.{HdfsWritingSettings, WriteLog}
-import akka.stream.scaladsl.{Sink, Source}
-import akka.testkit.TestProbe
+import akka.stream.scaladsl.{Keep, Sink, Source}
 import akka.util.ByteString
 import org.apache.commons.io.IOUtils
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.hadoop.hdfs.{HdfsConfiguration, MiniDFSCluster}
 import org.apache.hadoop.io.SequenceFile.CompressionType
-import org.apache.hadoop.io.{SequenceFile, Text, Writable}
 import org.apache.hadoop.io.compress._
 import org.apache.hadoop.io.compress.zlib.ZlibCompressor.CompressionLevel
+import org.apache.hadoop.io.{SequenceFile, Text}
 import org.apache.hadoop.test.PathUtils
-import org.apache.hadoop.util.ReflectionUtils
 import org.scalatest.{Assertion, _}
 
 import scala.collection.mutable.ListBuffer
@@ -30,15 +28,6 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
 
   private var hdfsCluster: MiniDFSCluster = _
   private val destionation = "/tmp/alpakka/"
-
-  private def books: Iterator[ByteString] =
-    List(
-      "Akka Concurrency",
-      "Akka in Action",
-      "Effective Akka",
-      "Learning Scala",
-      "Programming in Scala Programming",
-    ).map(ByteString(_)).iterator
 
   //#init-mat
   implicit val system = ActorSystem()
@@ -64,7 +53,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val flow = HdfsFlow.data(
         fs,
         SyncStrategy.count(50),
-        RotationStrategy.sized(0.01, FileUnit.KB),
+        RotationStrategy.size(0.01, FileUnit.KB),
         settings
       )
 
@@ -93,7 +82,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val flow = HdfsFlow.data(
         fs,
         SyncStrategy.count(500),
-        RotationStrategy.sized(0.5, FileUnit.KB),
+        RotationStrategy.size(0.5, FileUnit.KB),
         HdfsWritingSettings()
       )
 
@@ -105,7 +94,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val logs = Await.result(resF, Duration.Inf)
       logs.size shouldEqual 2
 
-      val files = getNonZeroLengthFiles
+      val files = getFiles
       files.map(_.getLen).sum shouldEqual 1024
       files.foreach(f => f.getLen should be <= 512L)
 
@@ -120,7 +109,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val flow = HdfsFlow.data(
         fs,
         SyncStrategy.count(500),
-        RotationStrategy.sized(1, FileUnit.GB), // Use huge rotation
+        RotationStrategy.size(1, FileUnit.GB), // Use huge rotation
         HdfsWritingSettings()
       )
 
@@ -132,7 +121,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val logs = Await.result(resF, Duration.Inf)
       logs.size shouldEqual 1
 
-      getNonZeroLengthFiles.head.getLen shouldEqual 1024
+      getFiles.head.getLen shouldEqual 1024
 
       verifyOutputFileSize(logs)
       readLogs(logs).flatten shouldBe data.flatMap(_.utf8String)
@@ -142,7 +131,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val flow = HdfsFlow.data(
         fs,
         SyncStrategy.count(1),
-        RotationStrategy.counted(2),
+        RotationStrategy.count(2),
         settings
       )
 
@@ -159,28 +148,24 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
     }
 
     "use timed rotation" in {
-      //todo this is broken
-      val probe = TestProbe()
-
-      val cancellable = Source
+      val (cancellable, resF) = Source
         .tick(0.millis, 50.milliseconds, ByteString("I love Alpakka!"))
         .via(
           HdfsFlow.data(
             fs,
-            SyncStrategy.count(100),
-            RotationStrategy.timed(500.milliseconds),
+            SyncStrategy.none,
+            RotationStrategy.time(500.milliseconds),
             HdfsWritingSettings()
           )
         )
-        .to(Sink.actorRef(probe.ref, "completed"))
+        .toMat(Sink.seq)(Keep.both)
         .run()
 
-      probe.expectMsg(500.milliseconds, WriteLog("0", 0))
-      probe.expectMsg(1000.milliseconds, WriteLog("1", 1))
-      probe.expectMsg(1500.milliseconds, WriteLog("2", 2))
-      cancellable.cancel()
-      probe.expectMsg(2000.milliseconds, WriteLog("3", 3))
-      getNonZeroLengthFiles.size shouldEqual 3
+      implicit val ec = system.dispatcher
+      system.scheduler.scheduleOnce(1500.milliseconds)(cancellable.cancel()) // cancel within 1500 milliseconds
+      val logs = Await.result(resF, Duration.Inf)
+      verifyOutputFileSize(logs)
+      List(3, 4) should contain(logs.size)
     }
 
     "should use no rotation and produce one file" in {
@@ -199,36 +184,13 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val res = Await.result(resF, Duration.Inf)
       res.size shouldEqual 1
 
-      val files = getNonZeroLengthFiles
+      val files = getFiles
       files.size shouldEqual res.size
       files.head.getLen shouldEqual books.map(_.toArray.length).sum
     }
 
-    /*    "use timed rotation ang ignore empty files" in {
-      val probe = TestProbe()
-
-      val cancellable = Source
-        .tick(0.millis, 1000.millis, ByteString("I love Alpakka!"))
-        .via(
-          HdfsFlow.data(
-            fs,
-            SyncStrategy.count(100),
-            RotationStrategy.timed(100.millis),
-            HdfsWritingSettings()
-          )
-        )
-        .to(Sink.actorRef(probe.ref, "completed"))
-        .run()
-
-      probe.expectMsg(100.millis, WriteLog("0", 0))
-      probe.expectNoMessage(500.millis)
-      cancellable.cancel()
-      val files = getNonZeroLengthFiles(settings.destination)
-      println(files.toList)
-      files.size shouldEqual 1
-    }*/
-
     "kafka-example - store data" in {
+      // todo consider to implement pass through feature
       //#kafka-example
       // We're going to pretend we got messages from kafka.
       // After we've written them to HDFS, we want
@@ -244,15 +206,10 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
         KafkaMessage(Book("Learning Scala"), KafkaOffset(3))
       )
 
-      var committedOffsets = List[KafkaOffset]()
-
-      def commitToKakfa(offset: KafkaOffset): Unit =
-        committedOffsets = committedOffsets :+ offset
-
       val flow = HdfsFlow.data(
         fs,
         SyncStrategy.count(50),
-        RotationStrategy.sized(0.01, FileUnit.KB),
+        RotationStrategy.size(0.01, FileUnit.KB),
         settings
       )
 
@@ -287,7 +244,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val flow = HdfsFlow.compressed(
         fs,
         SyncStrategy.count(1),
-        RotationStrategy.sized(0.1, FileUnit.MB),
+        RotationStrategy.size(0.1, FileUnit.MB),
         codec,
         settings
       )
@@ -320,7 +277,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val flow = HdfsFlow.compressed(
         fs,
         SyncStrategy.count(1),
-        RotationStrategy.counted(1),
+        RotationStrategy.count(1),
         codec,
         settings
       )
@@ -377,7 +334,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val flow = HdfsFlow.sequence(
         fs,
         SyncStrategy.none,
-        RotationStrategy.sized(1, FileUnit.MB),
+        RotationStrategy.size(1, FileUnit.MB),
         settings,
         classOf[Text],
         classOf[Text]
@@ -404,7 +361,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val flow = HdfsFlow.sequence(
         fs,
         SyncStrategy.none,
-        RotationStrategy.sized(1, FileUnit.MB),
+        RotationStrategy.size(1, FileUnit.MB),
         CompressionType.BLOCK,
         codec,
         settings,
@@ -430,7 +387,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
       val flow = HdfsFlow.sequence(
         fs,
         SyncStrategy.none,
-        RotationStrategy.counted(1),
+        RotationStrategy.count(1),
         settings,
         classOf[Text],
         classOf[Text]
@@ -479,21 +436,6 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
     }
   }
 
-  private def setupCluster(): Unit = {
-    val baseDir = new File(PathUtils.getTestDir(getClass), "miniHDFS")
-    val conf = new HdfsConfiguration
-    conf.set(MiniDFSCluster.HDFS_MINIDFS_BASEDIR, baseDir.getAbsolutePath)
-    val builder = new MiniDFSCluster.Builder(conf)
-    hdfsCluster = builder.nameNodePort(54310).format(true).build()
-    hdfsCluster.waitClusterUp()
-  }
-
-  private def getNonZeroLengthFiles: Seq[FileStatus] = {
-    val p = new Path(destionation)
-    for (file <- fs.listStatus(p) if file.getLen > 0)
-      yield file
-  }
-
   override protected def afterEach(): Unit = {
     fs.delete(new Path(destionation), true)
     fs.delete(settings.pathGenerator(0, 0).getParent, true)
@@ -506,6 +448,29 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
   override protected def afterAll(): Unit = {
     fs.close()
     hdfsCluster.shutdown()
+  }
+
+  private def books: Iterator[ByteString] =
+    List(
+      "Akka Concurrency",
+      "Akka in Action",
+      "Effective Akka",
+      "Learning Scala",
+      "Programming in Scala Programming",
+    ).map(ByteString(_)).iterator
+
+  private def setupCluster(): Unit = {
+    val baseDir = new File(PathUtils.getTestDir(getClass), "miniHDFS")
+    val conf = new HdfsConfiguration
+    conf.set(MiniDFSCluster.HDFS_MINIDFS_BASEDIR, baseDir.getAbsolutePath)
+    val builder = new MiniDFSCluster.Builder(conf)
+    hdfsCluster = builder.nameNodePort(54310).format(true).build()
+    hdfsCluster.waitClusterUp()
+  }
+
+  private def getFiles: Seq[FileStatus] = {
+    val p = new Path(destionation)
+    fs.listStatus(p)
   }
 
   private def readLogs(logs: Seq[WriteLog]): Seq[String] =
@@ -523,7 +488,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
   }
 
   private def verifyOutputFileSize(logs: Seq[WriteLog]): Assertion =
-    getNonZeroLengthFiles.size shouldEqual logs.size
+    getFiles.size shouldEqual logs.size
 
   private def verifyLogsWithCodec(content: Seq[ByteString], logs: Seq[WriteLog], codec: CompressionCodec): Assertion = {
     val pureContent: String = content.map(_.utf8String).mkString
@@ -533,7 +498,7 @@ class HdfsWriterSpec extends WordSpecLike with Matchers with BeforeAndAfterAll w
     contentFromHdfsWithCodec shouldEqual pureContent
   }
 
-  def readSequenceFile(log: WriteLog): List[(Text, Text)] = {
+  private def readSequenceFile(log: WriteLog): List[(Text, Text)] = {
     val reader = new SequenceFile.Reader(conf, SequenceFile.Reader.file(new Path(destionation, log.path)))
     var key = new Text
     var value = new Text
